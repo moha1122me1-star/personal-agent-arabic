@@ -3,7 +3,7 @@
   "main": "dist/worker.js",
   "compatibility_date": "2026-10-01",
   "kv_namespaces": [
-    { "binding": "KV", "id": "REPLACE_WITH_YOUR_KV_ID" }
+    { "binding": "KV", "id": "a7d111591d9f4104b1f97a83965b12c9" }
   ],
   "triggers": { "crons": ["* * * * *"] },
   "ai": { "binding": "AI" }
