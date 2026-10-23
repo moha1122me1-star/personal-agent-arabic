@@ -57,4 +57,5 @@
 ما اختبرت Tasker فعليًا (ما عندي هاتف)، الجسر نفسه مختبر من جهة السيرفر.
 
 ## تطوير محلي
-`npm test` (يبني ويشغّل الاختبارات)، `python3 test/ui.py` (اختبار الواجهة في Chromium). الكود المصدر في `src/` و`public/`، والـ build يدمجهم في `dist/worker.js`.
+`npm test` يبني `dist/worker.js` ثم يشغّل فحوصات: صحة الصياغة، تقديم الملفات، ترويسات الأمان وCSP، منع الوصول بدون رمز، وأن كل عنصر يستخدمه `app.js` موجود في `index.html`.
+الملفات كلها في جذر المستودع (`worker-source.js` للسيرفر، و`index.html` و`app.js` و`app.css` و`sw.js` للواجهة)، و`build.mjs` يدمجها في `dist/worker.js`.

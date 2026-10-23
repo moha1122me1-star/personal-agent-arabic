@@ -25,4 +25,6 @@
 - Build command: `npm run build`
 - Deploy command: `npx wrangler deploy`
 
-قبل النشر، افتح `wrangler.jsonc` واستبدل `REPLACE_WITH_YOUR_KV_ID` بمعرّف KV namespace الحقيقي. لا تستخدم معرّفًا تخمينيًا. وأضف binding باسم `AI` فقط إذا أردت استخدام Workers AI وكان متاحًا لحسابك.
+قبل النشر، تأكد أن `kv_namespaces[0].id` في `wrangler.jsonc` هو معرّف الـ KV namespace الخاص بحسابك (المعرّف الموجود حاليًا يخص إعدادك الحالي). وأبقِ binding باسم `AI` فقط إذا أردت استخدام Workers AI وكان متاحًا لحسابك.
+
+ملاحظة: بعد النشر، افتح التطبيق من الهاتف وأعد تحميله مرة أو مرتين حتى يتحدّث الـ Service Worker إلى النسخة الجديدة (`agent-shell-v2`).

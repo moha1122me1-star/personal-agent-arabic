@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0f172a">
+<meta name="theme-color" content="#14110f">
+<meta name="color-scheme" content="dark">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/app.css">
@@ -11,25 +12,38 @@
 </head>
 <body>
 <section id="login" class="login">
-  <h1>وكيلي</h1>
-  <p>اكتب رمز الوصول (ACCESS_TOKEN) اللي حطيته في إعدادات Cloudflare.</p>
-  <input id="token" type="password" autocomplete="off" placeholder="رمز الوصول">
-  <button id="saveToken" class="primary">دخول</button>
-  <small id="loginMsg"></small>
+  <form id="loginForm" class="login-card">
+    <div class="mark" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 4 41 14v20L24 44 7 34V14z"/><circle cx="24" cy="24" r="6"/></svg></div>
+    <h1>وكيلي</h1>
+    <p>وكيلك الشخصي. أدخل رمز الوصول الذي ضبطته في Cloudflare باسم <span class="ltr">ACCESS_TOKEN</span>.</p>
+    <input id="token" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" placeholder="رمز الوصول" aria-label="رمز الوصول" required>
+    <button id="saveToken" type="submit" class="primary">دخول</button>
+    <small id="loginMsg" role="alert"></small>
+  </form>
 </section>
 
 <main id="app" hidden>
-  <header><b>وكيلي</b><span id="status" class="status"></span></header>
+  <header>
+    <b class="brand"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 4 41 14v20L24 44 7 34V14z"/><circle cx="24" cy="24" r="6"/></svg>وكيلي</b>
+    <span id="status" class="status" role="status"></span>
+  </header>
 
   <section id="tab-chat" class="tab">
-    <div id="msgs" class="msgs"></div>
+    <div id="msgs" class="msgs" aria-live="polite"></div>
     <div id="chips" class="chips"></div>
     <form id="composer" class="composer">
-      <button type="button" id="attach" class="icon" aria-label="إرفاق ملف">📎</button>
+      <button type="button" id="attach" class="icon" aria-label="إرفاق ملف">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L16 7.5"/></svg>
+      </button>
       <input id="file" type="file" multiple hidden>
-      <textarea id="input" rows="1" placeholder="اكتب أو اضغط الميكروفون…"></textarea>
-      <button type="button" id="mic" class="icon" aria-label="تحدّث">🎤</button>
-      <button type="submit" id="send" class="icon primary" aria-label="إرسال">➤</button>
+      <textarea id="input" rows="1" placeholder="اكتب رسالتك…" aria-label="الرسالة"></textarea>
+      <button type="button" id="mic" class="icon" aria-label="تحدّث">
+        <svg class="i-mic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        <svg class="i-stop" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+      </button>
+      <button type="submit" id="send" class="icon primary" aria-label="إرسال">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H5m6-6-6 6 6 6"/></svg>
+      </button>
     </form>
   </section>
 
@@ -48,10 +62,10 @@
 
   <section id="tab-settings" class="tab" hidden>
     <h2>الإعدادات</h2>
-    <label class="row"><input type="checkbox" id="optVoiceOut"> الرد بالصوت (قراءة الردود)</label>
-    <label class="row"><input type="checkbox" id="optAutoSend" checked> إرسال تلقائي بعد الكلام</label>
-    <label class="row"><input type="checkbox" id="optConv"> محادثة صوتية مستمرة (يرد ثم يسمعك تلقائيًا)</label>
-    <label class="row">لغة التعرف على الصوت
+    <label class="row"><span>الرد بالصوت (قراءة الردود)</span><input type="checkbox" id="optVoiceOut"></label>
+    <label class="row"><span>إرسال تلقائي بعد الكلام</span><input type="checkbox" id="optAutoSend" checked></label>
+    <label class="row"><span>محادثة صوتية مستمرة (يرد ثم يسمعك تلقائيًا)</span><input type="checkbox" id="optConv"></label>
+    <label class="row"><span>لغة التعرف على الصوت</span>
       <select id="optLang"><option value="ar-LY">العربية (ليبيا)</option><option value="ar-SA">العربية (السعودية)</option><option value="ar-EG">العربية (مصر)</option><option value="en-US">English</option></select>
     </label>
     <button id="enablePush" class="primary">تفعيل الإشعارات على هذا الجهاز</button>
@@ -61,11 +75,19 @@
     <pre id="info" class="info"></pre>
   </section>
 
-  <nav>
-    <button data-tab="chat" class="on">💬<span>محادثة</span></button>
-    <button data-tab="files">📁<span>ملفات</span></button>
-    <button data-tab="tasks">⏰<span>مهام</span></button>
-    <button data-tab="settings">⚙️<span>إعدادات</span></button>
+  <nav aria-label="التنقل">
+    <button data-tab="chat" class="on" aria-label="محادثة">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg><span>محادثة</span>
+    </button>
+    <button data-tab="files" aria-label="ملفات">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 2h9v11H3z"/></svg><span>ملفات</span>
+    </button>
+    <button data-tab="tasks" aria-label="مهام">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 3h6"/></svg><span>مهام</span>
+    </button>
+    <button data-tab="settings" aria-label="إعدادات">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>إعدادات</span>
+    </button>
   </nav>
 </main>
 <script src="/app.js"></script>
