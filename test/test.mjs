@@ -34,8 +34,8 @@ import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const tmp = mkdtempSync(join(tmpdir(), 'agent-test-'));
-writeFileSync(join(tmp, 'w.mjs'), readFileSync('dist/worker.js', 'utf8') + '\nexport { runTool, DECLS, APPROVAL_TOOLS };\n');
-const { runTool, DECLS, APPROVAL_TOOLS } = await import(join(tmp, 'w.mjs'));
+writeFileSync(join(tmp, 'w.mjs'), readFileSync('dist/worker.js', 'utf8') + '\nexport { runTool, DECLS, APPROVAL_TOOLS, systemPrompt };\n');
+const { runTool, DECLS, APPROVAL_TOOLS, systemPrompt } = await import(join(tmp, 'w.mjs'));
 
 const store = new Map();
 const KV = { async get(k, type) { const v = store.get(k); if (v === undefined) return null; return type === 'json' ? JSON.parse(v) : v; }, async put(k, v) { store.set(k, v); }, async delete(k) { store.delete(k); } };
@@ -104,5 +104,10 @@ r = await runTool(env, 'cf_workers', {}); assert.equal(r.workers[0].name, 'my-ag
 r = await runTool(env, 'cf_deployments', { script: 'my-agent' }); assert.equal(r.deployments[0].versions[0].percentage, 100);
 assert.equal((await runTool(env, 'cf_deployments', { script: '../x' })).error, 'bad_arguments');
 ok('cloudflare tools are read-only, configured by secrets, and validate input');
+
+// concise-reply rules reach the model (foreground and background prompts)
+for (const bg of [false, true]) { const sp = systemPrompt([], bg); assert.ok(sp.includes('ممنوع الجداول') && sp.includes('سطر أو سطرين')); }
+assert.ok(systemPrompt(['يحب الاختصار'], false).includes('يحب الاختصار'));
+ok('system prompt enforces short mobile-friendly replies and keeps memory');
 
 console.log(`\nall ${n} checks passed`);
