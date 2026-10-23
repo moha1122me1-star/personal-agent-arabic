@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/app.css">
+<title>وكيلي</title>
+</head>
+<body>
+<section id="login" class="login">
+  <h1>وكيلي</h1>
+  <p>اكتب رمز الوصول (ACCESS_TOKEN) اللي حطيته في إعدادات Cloudflare.</p>
+  <input id="token" type="password" autocomplete="off" placeholder="رمز الوصول">
+  <button id="saveToken" class="primary">دخول</button>
+  <small id="loginMsg"></small>
+</section>
+
+<main id="app" hidden>
+  <header><b>وكيلي</b><span id="status" class="status"></span></header>
+
+  <section id="tab-chat" class="tab">
+    <div id="msgs" class="msgs"></div>
+    <div id="chips" class="chips"></div>
+    <form id="composer" class="composer">
+      <button type="button" id="attach" class="icon" aria-label="إرفاق ملف">📎</button>
+      <input id="file" type="file" multiple hidden>
+      <textarea id="input" rows="1" placeholder="اكتب أو اضغط الميكروفون…"></textarea>
+      <button type="button" id="mic" class="icon" aria-label="تحدّث">🎤</button>
+      <button type="submit" id="send" class="icon primary" aria-label="إرسال">➤</button>
+    </form>
+  </section>
+
+  <section id="tab-files" class="tab" hidden>
+    <h2>ملفاتي</h2>
+    <p class="hint">أرسل مشروعك (zip أو ملفات كود أو PDF أو صور). الحد 20MB للملف.</p>
+    <div id="fileList"></div>
+  </section>
+
+  <section id="tab-tasks" class="tab" hidden>
+    <h2>مهام الوكيل المجدولة</h2><div id="jobList"></div>
+    <h2>التذكيرات</h2><div id="remList"></div>
+    <h2>المواقع المراقَبة</h2><div id="watchList"></div>
+    <h2>ذاكرة الوكيل</h2><div id="memList"></div>
+  </section>
+
+  <section id="tab-settings" class="tab" hidden>
+    <h2>الإعدادات</h2>
+    <label class="row"><input type="checkbox" id="optVoiceOut"> الرد بالصوت (قراءة الردود)</label>
+    <label class="row"><input type="checkbox" id="optAutoSend" checked> إرسال تلقائي بعد الكلام</label>
+    <label class="row"><input type="checkbox" id="optConv"> محادثة صوتية مستمرة (يرد ثم يسمعك تلقائيًا)</label>
+    <label class="row">لغة التعرف على الصوت
+      <select id="optLang"><option value="ar-LY">العربية (ليبيا)</option><option value="ar-SA">العربية (السعودية)</option><option value="ar-EG">العربية (مصر)</option><option value="en-US">English</option></select>
+    </label>
+    <button id="enablePush" class="primary">تفعيل الإشعارات على هذا الجهاز</button>
+    <button id="testPush">إرسال إشعار تجريبي</button>
+    <button id="clearChat">مسح المحادثة</button>
+    <button id="logout" class="danger">تسجيل الخروج</button>
+    <pre id="info" class="info"></pre>
+  </section>
+
+  <nav>
+    <button data-tab="chat" class="on">💬<span>محادثة</span></button>
+    <button data-tab="files">📁<span>ملفات</span></button>
+    <button data-tab="tasks">⏰<span>مهام</span></button>
+    <button data-tab="settings">⚙️<span>إعدادات</span></button>
+  </nav>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

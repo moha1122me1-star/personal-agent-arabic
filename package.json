@@ -1,0 +1,11 @@
+{
+  "name": "wakeely-personal-agent",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "npm run build && node test/test.mjs",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "devDependencies": { "wrangler": "^4.0.0" }
+}
