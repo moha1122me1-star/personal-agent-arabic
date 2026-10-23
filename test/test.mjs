@@ -28,4 +28,81 @@ ok('every $(id) in app.js exists in index.html');
 assert.ok(!/style="/.test(html) && !/<script>[^<]/.test(html) && !/<style/.test(html), 'inline style/script would break CSP'); ok('no inline style/script (CSP-safe)');
 assert.ok(!/https?:\/\/(fonts|cdn)/.test(html + css), 'external resources would break CSP'); ok('no external resources');
 assert.ok(!/gemini_not_configured' \?/.test(js)); ok('no stale Gemini-only error text');
+
+// ---------- tool-level tests (runTool exposed through a temporary copy; production worker is untouched) ----------
+import { writeFileSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const tmp = mkdtempSync(join(tmpdir(), 'agent-test-'));
+writeFileSync(join(tmp, 'w.mjs'), readFileSync('dist/worker.js', 'utf8') + '\nexport { runTool, DECLS, APPROVAL_TOOLS };\n');
+const { runTool, DECLS, APPROVAL_TOOLS } = await import(join(tmp, 'w.mjs'));
+
+const store = new Map();
+const KV = { async get(k, type) { const v = store.get(k); if (v === undefined) return null; return type === 'json' ? JSON.parse(v) : v; }, async put(k, v) { store.set(k, v); }, async delete(k) { store.delete(k); } };
+const calls = [];
+globalThis.fetch = async (url, init = {}) => {
+  url = String(url); calls.push({ url, method: init.method || 'GET', body: init.body ? JSON.parse(init.body) : null, auth: init.headers?.Authorization });
+  const reply = (j, status = 200) => new Response(JSON.stringify(j), { status, headers: { 'content-type': 'application/json' } });
+  if (url.endsWith('/repos/o/r')) return reply({ default_branch: 'main' });
+  if (url.includes('/git/ref/heads/main')) return reply({ object: { sha: 'abc123' } });
+  if (url.endsWith('/git/refs')) return reply({ ref: 'refs/heads/feat' }, 201);
+  if (url.endsWith('/pulls') && init.method === 'POST') return reply({ html_url: 'https://github.com/o/r/pull/7', number: 7 }, 201);
+  if (url.includes('/issues?')) return reply([{ number: 1, title: 'bug', state: 'open', user: { login: 'u' }, html_url: 'h', updated_at: 't' }, { number: 2, title: 'a pr', pull_request: {}, state: 'open' }]);
+  if (url.includes('/comments')) return reply({ html_url: 'https://github.com/o/r/issues/1#c' }, 201);
+  if (url.includes('/actions/runs')) return reply({ workflow_runs: [{ name: 'ci', head_branch: 'main', status: 'completed', conclusion: 'success', html_url: 'u', created_at: 't' }] });
+  if (url.includes('api.cloudflare.com') && url.endsWith('/workers/scripts')) return reply({ success: true, result: [{ id: 'my-agent', modified_on: 'm', created_on: 'c' }] });
+  if (url.includes('/deployments')) return reply({ success: true, result: { deployments: [{ id: 'd1', created_on: 'c', source: 'wrangler', strategy: 'percentage', versions: [{ version_id: 'v1', percentage: 100 }] }] } });
+  return reply({ message: 'not mocked: ' + url }, 404);
+};
+const env = { KV, GITHUB_TOKEN: 'ghp_test', PHONE_TOKEN: 'p', CF_API_TOKEN: 'cft', CF_ACCOUNT_ID: 'a'.repeat(32) };
+
+// every declared tool has a handler, and write tools are approval-gated
+const src = readFileSync('worker-source.js', 'utf8');
+for (const d of DECLS) assert.ok(src.includes(`case '${d.name}'`), 'no handler for ' + d.name);
+ok('every declared tool has a handler');
+for (const w of ['gh_write_file', 'gh_create_issue', 'gh_create_branch', 'gh_create_pr', 'gh_comment', 'phone_command', 'phone_open_url', 'phone_open_app', 'send_webhook', 'delete_file']) assert.ok(APPROVAL_TOOLS.has(w), w + ' must need approval');
+ok('all write/phone tools require approval');
+
+// unapproved call only queues a pending approval and never touches the network
+calls.length = 0; const pend = [];
+let r = await runTool(env, 'gh_create_pr', { repo: 'o/r', title: 't', head: 'feat', base: 'main' }, { pendings: pend });
+assert.equal(r.status, 'awaiting_user_approval'); assert.equal(pend.length, 1); assert.equal(calls.length, 0);
+ok('gh_create_pr waits for approval without calling GitHub');
+
+// validation
+for (const [name, args] of [['gh_create_branch', { repo: 'o/r', branch: '../x' }], ['gh_create_branch', { repo: 'bad repo', branch: 'x' }], ['gh_create_pr', { repo: 'o/r', title: 't', head: 'a b', base: 'main' }], ['gh_comment', { repo: 'o/r', number: 0, body: 'x' }]]) assert.equal((await runTool(env, name, args, { pendings: [] })).error, 'bad_arguments', name);
+assert.equal((await runTool(env, 'phone_open_url', { url: 'http://x.com' }, { pendings: [] })).error, 'bad_url');
+assert.equal((await runTool(env, 'phone_open_url', { url: 'javascript:alert(1)' }, { pendings: [] })).error, 'bad_url');
+assert.equal((await runTool(env, 'phone_open_app', { app: 'x; rm -rf /' }, { pendings: [] })).error, 'bad_arguments');
+ok('invalid branches, repos, urls and app names are rejected');
+
+// approved execution
+calls.length = 0;
+r = await runTool(env, 'gh_create_branch', { repo: 'o/r', branch: 'feat' }, { approved: true });
+assert.deepEqual(r, { ok: true, branch: 'feat', from: 'main' });
+assert.deepEqual(calls.at(-1).body, { ref: 'refs/heads/feat', sha: 'abc123' }); assert.equal(calls.at(-1).auth, 'Bearer ghp_test');
+ok('gh_create_branch resolves default branch sha and creates ref');
+r = await runTool(env, 'gh_create_pr', { repo: 'o/r', title: 'T', head: 'feat', base: 'main', body: 'b' }, { approved: true });
+assert.equal(r.number, 7); assert.deepEqual(calls.at(-1).body, { title: 'T', head: 'feat', base: 'main', body: 'b' });
+ok('gh_create_pr posts correct payload');
+r = await runTool(env, 'gh_comment', { repo: 'o/r', number: 1, body: 'hi' }, { approved: true }); assert.ok(r.ok && calls.at(-1).url.endsWith('/issues/1/comments'));
+ok('gh_comment posts to the issue');
+r = await runTool(env, 'gh_list_issues', { repo: 'o/r', state: 'DROP TABLE' }); assert.equal(r.items.length, 1); assert.ok(calls.at(-1).url.includes('state=open'));
+ok('gh_list_issues excludes PRs and sanitizes state');
+r = await runTool(env, 'gh_workflow_runs', { repo: 'o/r' }); assert.equal(r.runs[0].conclusion, 'success');
+ok('gh_workflow_runs reports build status');
+
+// phone
+r = await runTool(env, 'phone_open_url', { url: 'https://example.com/x' }, { approved: true }); assert.ok(r.ok);
+r = await runTool(env, 'phone_open_app', { app: 'Instagram' }, { approved: true }); assert.ok(r.ok);
+const q = JSON.parse(store.get('phoneq')); assert.deepEqual(q.map(x => [x.action, x.value]), [['open_url', 'https://example.com/x'], ['open_app', 'Instagram']]);
+ok('phone commands are queued for the Tasker bridge');
+
+// cloudflare (read only)
+assert.equal((await runTool({ KV }, 'cf_workers', {})).error, 'cloudflare_not_configured');
+r = await runTool(env, 'cf_workers', {}); assert.equal(r.workers[0].name, 'my-agent'); assert.equal(calls.at(-1).method, 'GET'); assert.equal(calls.at(-1).auth, 'Bearer cft');
+r = await runTool(env, 'cf_deployments', { script: 'my-agent' }); assert.equal(r.deployments[0].versions[0].percentage, 100);
+assert.equal((await runTool(env, 'cf_deployments', { script: '../x' })).error, 'bad_arguments');
+ok('cloudflare tools are read-only, configured by secrets, and validate input');
+
 console.log(`\nall ${n} checks passed`);

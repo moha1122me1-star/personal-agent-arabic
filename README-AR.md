@@ -7,7 +7,9 @@
 - **مهام مستقلة**: تقوله «كل يوم الساعة 8 لخّص لي أخبار التقنية» أو «افحص موقعي كل ساعة وبلغني» أو «اشتغل على كذا في الخلفية». ينفذها بنفسه بدون ما تكون فاتح التطبيق، وتجيك النتيجة كإشعار.
 - **تذكيرات** (وتكرار) تجيك إشعار حتى والتطبيق مقفول. **مراقبة مواقع** وإشعار عند أي تغيير.
 - **ملفات مشروعك**: يقرأ الكود، يفتح الـ zip ويقرأ ملفاته، يحلل PDF/صور/صوت. ويكتب لك ملفات (كود/تقارير/CSV) تنزّلها من تبويب الملفات.
-- **GitHub**: يقرأ مستودعاتك مباشرة، ويكتب/يعدّل ملفات وينشئ Issues **بعد موافقتك بزر**.
+- **GitHub**: يقرأ مستودعاتك وIssues وPull Requests وحالة GitHub Actions (نجاح/فشل) مباشرة. وينشئ فروعًا وPull Requests وتعليقات ويكتب/يعدّل ملفات وينشئ Issues **بعد موافقتك بزر** في كل مرة.
+- **Cloudflare (قراءة فقط)**: يعرض Workers في حسابك وآخر عمليات النشر. لا يعدّل شيئًا.
+- **الهاتف وChrome**: يفتح رابطًا أو تطبيقًا (WhatsApp، Instagram، X…) على هاتفك عبر جسر Tasker، بعد موافقتك.
 - **Webhooks**: يرسل POST لأي رابط (Discord، n8n، IFTTT…) بعد موافقتك.
 - بحث في الويب، قراءة صفحات، وذاكرة دائمة لتفضيلاتك.
 - أوامر على الهاتف (فتح تطبيق، رابط، إشعار) عبر Tasker/MacroDroid، كل أمر بموافقتك.
@@ -16,6 +18,8 @@
 أمثلة: «ارفع zip مشروعك وقل: راجع الكود وأنشئ Issue بالمشاكل»، «كل أحد 9 صباحًا لخّص لي تغيّرات مستودع o/r هذا الأسبوع»، «اكتب لي README للمشروع وخزنه ملف».
 
 ## شنو ما يقدرش (بصراحة)
+- ما يتحكم في حساباتك الشخصية على X وفيسبوك وإنستغرام وChatGPT: هذي المنصات ما تقدّم API للتحكم بحساب شخصي (الكتابة على X مدفوعة، وميتا تسمح فقط لصفحات الأعمال بعد مراجعة تطبيقك). الوكيل يقدر يفتح تطبيقاتها أو روابطها على هاتفك فقط. ولا تعطه كلمات سر هذه الحسابات.
+- Gmail وGoogle Calendar وDrive غير مربوطة بعد (تحتاج إعداد OAuth من Google Cloud).
 - ما يتحكم في تطبيقاتك مباشرة. أندرويد يمنع هذا على المواقع. التنفيذ على الهاتف يمر عبر Tasker أنت تضبطه (راجع آخر الملف).
 - كل مزوّد مجاني له حدود مستقلة وليست غير محدودة. Groq قد يقيّد الطلبات، وWorkers AI تُحسب حصته بوحدات Neurons، وKV له حد كتابات يومي. التحويل الاحتياطي لا يضمن أن الخدمة لن تتوقف إذا استُهلكت حصص الجميع. 
 - المهام المتكررة: أقل فاصل 15 دقيقة، وينفّذ حد أقصى مهمتين في الدقيقة، حفاظًا على الحصة المجانية.
@@ -35,7 +39,8 @@
    - `GROQ_API_KEY` = مفتاح Groq (اختياري؛ يفضّل تفعيله ليكون الأساسي).
    - `GEMINI_API_KEY` = مفتاح Gemini (اختياري لكنه مطلوب لميزات تحليل الملفات والصوت والبحث التي تستخدم Gemini مباشرة).
    - اختياري: `GROQ_MODEL` (الافتراضي `openai/gpt-oss-120b`)، `CF_AI_MODEL` (الافتراضي `@cf/zai-org/glm-4.7-flash`). تأكد من أن النموذج المختار متاح لحسابك ويدعم tool calling.
-   - اختياري: `GITHUB_TOKEN` (من github.com/settings/personal-access-tokens ← Fine-grained token ← اختر مستودعاتك فقط ← Contents: Read and write، Issues: Read and write، Metadata: Read). لا تعطيه أكثر من اللازم.
+   - اختياري: `CF_API_TOKEN` و`CF_ACCOUNT_ID` لقراءة Cloudflare. أنشئ API Token من dash.cloudflare.com/profile/api-tokens بصلاحية **Workers Scripts: Read** فقط (لا تعطه صلاحية Edit). و`CF_ACCOUNT_ID` تجده في صفحة Workers & Pages.
+   - اختياري: `GITHUB_TOKEN` (من github.com/settings/personal-access-tokens ← Fine-grained token ← اختر مستودعاتك فقط ← Contents: Read and write، Issues: Read and write، Pull requests: Read and write، Actions: Read، Metadata: Read). لا تعطيه أكثر من اللازم.
    - اختياري: `PHONE_TOKEN` (لجسر الهاتف)، `GEMINI_MODEL` (الافتراضي gemini-2.5-flash)، `GEMINI_FALLBACK_MODEL` (الافتراضي gemini-2.5-flash-lite).
 8. **المجدول (للتذكيرات والمراقبة)**: Settings ← Trigger Events ← Cron Triggers ← Add ← `* * * * *` (كل دقيقة).
 9. افتح رابط الـ Worker (`https://my-agent.<اسمك>.workers.dev`) في Chrome ← أدخل `ACCESS_TOKEN`.
@@ -53,6 +58,7 @@
 اضبط `PHONE_TOKEN`. في Tasker أنشئ مهمة تعمل كل دقيقة:
 - `GET https://<worker>/phone/next` مع ترويسة `Authorization: Bearer <PHONE_TOKEN>`.
 - إذا رجع 204 فلا شي. وإذا رجع JSON `{id, action, value}` نفّذ حسب `action` (`notify`, `open_app`, `open_url`, `speak`, …) من تعريفك أنت.
+- أوامر جاهزة يرسلها الوكيل: `open_url` (value = رابط https، افتحه في Chrome) و`open_app` (value = اسم التطبيق)، بالإضافة إلى `notify` و`speak` و`custom`.
 - ثم `POST /phone/result` بـ `{id, ok, text}` ليصلك إشعار بالنتيجة.
 ما اختبرت Tasker فعليًا (ما عندي هاتف)، الجسر نفسه مختبر من جهة السيرفر.
 
