@@ -105,6 +105,34 @@ r = await runTool(env, 'cf_deployments', { script: 'my-agent' }); assert.equal(r
 assert.equal((await runTool(env, 'cf_deployments', { script: '../x' })).error, 'bad_arguments');
 ok('cloudflare tools are read-only, configured by secrets, and validate input');
 
+// ---------- google (read only) ----------
+const b64url = (str) => Buffer.from(str, 'utf8').toString('base64url');
+const prevFetch = globalThis.fetch; const gcalls = [];
+globalThis.fetch = async (url, init = {}) => {
+  url = String(url); gcalls.push({ url, method: init.method || 'GET', auth: init.headers?.Authorization, body: init.body ? String(init.body) : null });
+  const reply = (j, status = 200) => new Response(JSON.stringify(j), { status, headers: { 'content-type': 'application/json' } });
+  if (url === 'https://oauth2.googleapis.com/token') return String(init.body).includes('refresh_token=good') ? reply({ access_token: 'at1', expires_in: 3600 }) : reply({ error: 'invalid_grant', error_description: 'expired' }, 400);
+  if (url.includes('/calendar/v3/')) return reply({ items: [{ summary: 'اجتماع', start: { dateTime: '2026-10-24T10:00:00+02:00' }, end: { dateTime: '2026-10-24T11:00:00+02:00' } }] });
+  if (url.includes('/gmail/v1/users/me/messages?')) return reply({ messages: [{ id: 'abc123def4' }] });
+  if (url.includes('format=metadata')) return reply({ snippet: 'hello', labelIds: ['UNREAD'], payload: { headers: [{ name: 'From', value: 'a@b.com' }, { name: 'Subject', value: 'Hi' }, { name: 'Date', value: 'today' }] } });
+  if (url.includes('format=full')) return reply({ payload: { headers: [{ name: 'Subject', value: 'S' }], mimeType: 'multipart/alternative', parts: [{ mimeType: 'text/html', body: { data: b64url('<p>html</p>') } }, { mimeType: 'text/plain', body: { data: b64url('نص الرسالة') } }] } });
+  if (url.includes('/drive/v3/files')) return reply({ files: [{ id: 'f1', name: 'خطة', mimeType: 'application/pdf', modifiedTime: 'm', webViewLink: 'w' }] });
+  return reply({}, 404);
+};
+const genv = { KV, GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'sec', GOOGLE_REFRESH_TOKEN: 'good' };
+assert.equal((await runTool({ KV }, 'gmail_search', {})).error, 'google_not_configured'); ok('google tools report missing configuration');
+r = await runTool(genv, 'google_calendar', { days: 999 }); assert.equal(r.events[0].title, 'اجتماع'); assert.ok(r.note);
+assert.ok(gcalls.find(c => c.url.includes('calendar')).auth === 'Bearer at1'); ok('calendar uses refreshed access token and marks content as data');
+r = await runTool(genv, 'gmail_search', { query: 'is:unread', max: 50 }); assert.deepEqual([r.messages[0].from, r.messages[0].subject, r.messages[0].unread], ['a@b.com', 'Hi', true]);
+assert.ok(gcalls.some(c => c.url.includes('maxResults=10'))); ok('gmail_search returns metadata and caps results');
+r = await runTool(genv, 'gmail_read', { id: 'abc123def4' }); assert.equal(r.text, 'نص الرسالة'); ok('gmail_read prefers plain text');
+assert.equal((await runTool(genv, 'gmail_read', { id: '../../x' })).error, 'bad_arguments'); ok('gmail_read rejects unsafe ids');
+r = await runTool(genv, 'drive_search', { query: "x' or name contains 'y" }); assert.equal(r.files[0].name, 'خطة');
+assert.ok(!decodeURIComponent(gcalls.at(-1).url).includes("x' or")); ok('drive_search strips quotes from the query');
+assert.equal(gcalls.filter(c => c.url === 'https://oauth2.googleapis.com/token').length, 1); ok('access token is cached (one refresh for all calls)');
+for (const c of gcalls) assert.ok(c.method === 'GET' || c.url.includes('oauth2.googleapis.com')); ok('google calls are read-only (GET only)');
+globalThis.fetch = prevFetch;
+
 // concise-reply rules reach the model (foreground and background prompts)
 for (const bg of [false, true]) { const sp = systemPrompt([], bg); assert.ok(sp.includes('ممنوع الجداول') && sp.includes('سطر أو سطرين')); }
 assert.ok(systemPrompt(['يحب الاختصار'], false).includes('يحب الاختصار'));

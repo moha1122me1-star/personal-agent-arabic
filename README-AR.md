@@ -9,6 +9,7 @@
 - **ملفات مشروعك**: يقرأ الكود، يفتح الـ zip ويقرأ ملفاته، يحلل PDF/صور/صوت. ويكتب لك ملفات (كود/تقارير/CSV) تنزّلها من تبويب الملفات.
 - **GitHub**: يقرأ مستودعاتك وIssues وPull Requests وحالة GitHub Actions (نجاح/فشل) مباشرة. وينشئ فروعًا وPull Requests وتعليقات ويكتب/يعدّل ملفات وينشئ Issues **بعد موافقتك بزر** في كل مرة.
 - **Cloudflare (قراءة فقط)**: يعرض Workers في حسابك وآخر عمليات النشر. لا يعدّل شيئًا.
+- **Google (قراءة فقط)**: يبحث في Gmail ويقرأ الرسائل، ويعرض أحداث التقويم القادمة، ويبحث في ملفات Drive.
 - **الهاتف وChrome**: يفتح رابطًا أو تطبيقًا (WhatsApp، Instagram، X…) على هاتفك عبر جسر Tasker، بعد موافقتك.
 - **Webhooks**: يرسل POST لأي رابط (Discord، n8n، IFTTT…) بعد موافقتك.
 - بحث في الويب، قراءة صفحات، وذاكرة دائمة لتفضيلاتك.
@@ -19,7 +20,7 @@
 
 ## شنو ما يقدرش (بصراحة)
 - ما يتحكم في حساباتك الشخصية على X وفيسبوك وإنستغرام وChatGPT: هذي المنصات ما تقدّم API للتحكم بحساب شخصي (الكتابة على X مدفوعة، وميتا تسمح فقط لصفحات الأعمال بعد مراجعة تطبيقك). الوكيل يقدر يفتح تطبيقاتها أو روابطها على هاتفك فقط. ولا تعطه كلمات سر هذه الحسابات.
-- Gmail وGoogle Calendar وDrive غير مربوطة بعد (تحتاج إعداد OAuth من Google Cloud).
+- Gmail وCalendar وDrive: قراءة فقط. لا يرسل بريدًا ولا يعدّل ولا يحذف.
 - ما يتحكم في تطبيقاتك مباشرة. أندرويد يمنع هذا على المواقع. التنفيذ على الهاتف يمر عبر Tasker أنت تضبطه (راجع آخر الملف).
 - كل مزوّد مجاني له حدود مستقلة وليست غير محدودة. Groq قد يقيّد الطلبات، وWorkers AI تُحسب حصته بوحدات Neurons، وKV له حد كتابات يومي. التحويل الاحتياطي لا يضمن أن الخدمة لن تتوقف إذا استُهلكت حصص الجميع. 
 - المهام المتكررة: أقل فاصل 15 دقيقة، وينفّذ حد أقصى مهمتين في الدقيقة، حفاظًا على الحصة المجانية.
@@ -40,6 +41,7 @@
    - `GEMINI_API_KEY` = مفتاح Gemini (اختياري لكنه مطلوب لميزات تحليل الملفات والصوت والبحث التي تستخدم Gemini مباشرة).
    - اختياري: `GROQ_MODEL` (الافتراضي `openai/gpt-oss-120b`)، `CF_AI_MODEL` (الافتراضي `@cf/zai-org/glm-4.7-flash`). تأكد من أن النموذج المختار متاح لحسابك ويدعم tool calling.
    - اختياري: `CF_API_TOKEN` و`CF_ACCOUNT_ID` لقراءة Cloudflare. أنشئ API Token من dash.cloudflare.com/profile/api-tokens بصلاحية **Workers Scripts: Read** فقط (لا تعطه صلاحية Edit). و`CF_ACCOUNT_ID` تجده في صفحة Workers & Pages.
+   - اختياري لربط Google: `GOOGLE_CLIENT_ID` و`GOOGLE_CLIENT_SECRET` و`GOOGLE_REFRESH_TOKEN`. الخطوات: في console.cloud.google.com أنشئ مشروعًا ← فعّل Gmail API وGoogle Calendar API وGoogle Drive API ← OAuth consent screen (External) وانشره In production ← Credentials ← OAuth client ID (Web application) وأضف Redirect URI: `https://developers.google.com/oauthplayground` ← ثم في OAuth Playground اضغط ⚙️ واختر Use your own OAuth credentials والصق الـ ID والـ Secret، واختر النطاقات `gmail.readonly` و`calendar.readonly` و`drive.readonly` فقط، واضغط Authorize ثم Exchange authorization code for tokens وانسخ الـ Refresh token. (إن تركت التطبيق في وضع Testing فتنتهي صلاحية الـ Refresh token بعد 7 أيام.)
    - اختياري: `GITHUB_TOKEN` (من github.com/settings/personal-access-tokens ← Fine-grained token ← اختر مستودعاتك فقط ← Contents: Read and write، Issues: Read and write، Pull requests: Read and write، Actions: Read، Metadata: Read). لا تعطيه أكثر من اللازم.
    - اختياري: `PHONE_TOKEN` (لجسر الهاتف)، `GEMINI_MODEL` (الافتراضي gemini-2.5-flash)، `GEMINI_FALLBACK_MODEL` (الافتراضي gemini-2.5-flash-lite).
 8. **المجدول (للتذكيرات والمراقبة)**: Settings ← Trigger Events ← Cron Triggers ← Add ← `* * * * *` (كل دقيقة).
