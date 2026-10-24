@@ -2,9 +2,9 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#14110f">
-<meta name="color-scheme" content="dark">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="theme-color" content="#12100d">
+<meta name="color-scheme" content="dark light">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/app.css">
@@ -15,64 +15,122 @@
   <form id="loginForm" class="login-card">
     <div class="mark" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 4 41 14v20L24 44 7 34V14z"/><circle cx="24" cy="24" r="6"/></svg></div>
     <h1>وكيلي</h1>
-    <p>وكيلك الشخصي. أدخل رمز الوصول الذي ضبطته في Cloudflare باسم <span class="ltr">ACCESS_TOKEN</span>.</p>
-    <input id="token" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" placeholder="رمز الوصول" aria-label="رمز الوصول" required>
-    <button id="saveToken" type="submit" class="primary">دخول</button>
+    <p>وكيلك الشخصي الذكي. أدخل رمز الوصول الذي ضبطته في Cloudflare باسم <span class="ltr">ACCESS_TOKEN</span>.</p>
+    <div class="field">
+      <input id="token" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" placeholder="رمز الوصول" aria-label="رمز الوصول" required>
+      <button type="button" id="showToken" class="ghost icon-btn" aria-label="إظهار الرمز">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+    </div>
+    <button id="saveToken" type="submit" class="primary wide">دخول</button>
     <small id="loginMsg" role="alert"></small>
   </form>
 </section>
 
 <main id="app" hidden>
-  <header>
+  <header class="top">
     <b class="brand"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 4 41 14v20L24 44 7 34V14z"/><circle cx="24" cy="24" r="6"/></svg>وكيلي</b>
     <span id="status" class="status" role="status"></span>
+    <button id="newChat" class="ghost icon-btn" aria-label="محادثة جديدة" title="محادثة جديدة">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
   </header>
 
-  <section id="tab-chat" class="tab">
-    <div id="msgs" class="msgs" aria-live="polite"></div>
-    <div id="chips" class="chips"></div>
-    <form id="composer" class="composer">
-      <button type="button" id="attach" class="icon" aria-label="إرفاق ملف">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L16 7.5"/></svg>
-      </button>
-      <input id="file" type="file" multiple hidden>
-      <textarea id="input" rows="1" placeholder="اكتب رسالتك…" aria-label="الرسالة"></textarea>
-      <button type="button" id="mic" class="icon" aria-label="تحدّث">
-        <svg class="i-mic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
-        <svg class="i-stop" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
-      </button>
-      <button type="submit" id="send" class="icon primary" aria-label="إرسال">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H5m6-6-6 6 6 6"/></svg>
-      </button>
-    </form>
+  <div id="banner" class="banner" hidden>
+    <span id="bannerText"></span>
+    <button id="bannerBtn" class="mini primary" hidden></button>
+    <button id="bannerClose" class="mini ghost" aria-label="إغلاق"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  </div>
+
+  <section id="tab-chat" class="tab chat">
+    <div id="msgs" class="msgs" role="log" aria-label="المحادثة"></div>
+    <button id="toBottom" class="fab" aria-label="النزول لآخر الرسائل" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6"/></svg>
+    </button>
+    <div class="dock">
+      <div id="chips" class="chips"></div>
+      <form id="composer" class="composer">
+        <textarea id="input" rows="1" placeholder="اكتب رسالتك…" aria-label="الرسالة"></textarea>
+        <div class="tools">
+          <button type="button" id="attach" class="ghost icon-btn" aria-label="إرفاق ملف" title="إرفاق ملف">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L16 7.5"/></svg>
+          </button>
+          <input id="file" type="file" multiple hidden>
+          <span class="spacer"></span>
+          <button type="button" id="mic" class="ghost icon-btn" aria-label="تحدّث" title="تحدّث">
+            <svg class="i-mic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+            <svg class="i-stop" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+          </button>
+          <button type="submit" id="send" class="send" aria-label="إرسال" title="إرسال" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>
+          </button>
+          <button type="button" id="stop" class="send stop" aria-label="إيقاف" title="إيقاف" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+          </button>
+        </div>
+      </form>
+    </div>
   </section>
 
   <section id="tab-files" class="tab" hidden>
-    <h2>ملفاتي</h2>
-    <p class="hint">أرسل مشروعك (zip أو ملفات كود أو PDF أو صور). الحد 20MB للملف.</p>
-    <div id="fileList"></div>
+    <div class="page">
+      <div class="page-head"><h2>ملفاتي</h2><button id="uploadBtn" class="primary mini">رفع ملف</button></div>
+      <p class="hint">أرسل مشروعك (zip أو ملفات كود أو PDF أو صور). الحد 20MB للملف. الوكيل يقرأها ويحلّلها، ويكتب لك ملفات تنزّلها من هنا.</p>
+      <div id="fileList"></div>
+    </div>
   </section>
 
   <section id="tab-tasks" class="tab" hidden>
-    <h2>مهام الوكيل المجدولة</h2><div id="jobList"></div>
-    <h2>التذكيرات</h2><div id="remList"></div>
-    <h2>المواقع المراقَبة</h2><div id="watchList"></div>
-    <h2>ذاكرة الوكيل</h2><div id="memList"></div>
+    <div class="page">
+      <h2>مهام الوكيل المجدولة</h2><div id="jobList"></div>
+      <h2>التذكيرات</h2><div id="remList"></div>
+      <h2>المواقع المراقَبة</h2><div id="watchList"></div>
+      <h2>ذاكرة الوكيل</h2><div id="memList"></div>
+    </div>
   </section>
 
   <section id="tab-settings" class="tab" hidden>
-    <h2>الإعدادات</h2>
-    <label class="row"><span>الرد بالصوت (قراءة الردود)</span><input type="checkbox" id="optVoiceOut"></label>
-    <label class="row"><span>إرسال تلقائي بعد الكلام</span><input type="checkbox" id="optAutoSend" checked></label>
-    <label class="row"><span>محادثة صوتية مستمرة (يرد ثم يسمعك تلقائيًا)</span><input type="checkbox" id="optConv"></label>
-    <label class="row"><span>لغة التعرف على الصوت</span>
-      <select id="optLang"><option value="ar-LY">العربية (ليبيا)</option><option value="ar-SA">العربية (السعودية)</option><option value="ar-EG">العربية (مصر)</option><option value="en-US">English</option></select>
-    </label>
-    <button id="enablePush" class="primary">تفعيل الإشعارات على هذا الجهاز</button>
-    <button id="testPush">إرسال إشعار تجريبي</button>
-    <button id="clearChat">مسح المحادثة</button>
-    <button id="logout" class="danger">تسجيل الخروج</button>
-    <pre id="info" class="info"></pre>
+    <div class="page">
+      <h2>الإعدادات</h2>
+
+      <div class="group">
+        <h3>الصوت</h3>
+        <label class="row"><span class="lbl"><b>قراءة الردود بصوت عالٍ</b><small>يقرأ الوكيل ردّه بعد ما يكتبه</small></span><input type="checkbox" role="switch" class="sw" id="optVoiceOut"></label>
+        <label class="row"><span class="lbl"><b>إرسال تلقائي بعد الكلام</b><small>يُرسل رسالتك أول ما تسكت</small></span><input type="checkbox" role="switch" class="sw" id="optAutoSend" checked></label>
+        <label class="row"><span class="lbl"><b>محادثة صوتية مستمرة</b><small>يرد عليك ثم يسمعك تلقائيًا بدون ما تلمس الشاشة</small></span><input type="checkbox" role="switch" class="sw" id="optConv"></label>
+        <label class="row"><span class="lbl"><b>لغة التعرف على الصوت</b></span>
+          <select id="optLang"><option value="ar-LY">العربية (ليبيا)</option><option value="ar-SA">العربية (السعودية)</option><option value="ar-EG">العربية (مصر)</option><option value="en-US">English</option></select>
+        </label>
+      </div>
+
+      <div class="group">
+        <h3>المظهر</h3>
+        <label class="row"><span class="lbl"><b>السمة</b></span>
+          <select id="optTheme"><option value="auto">تلقائي (حسب الجهاز)</option><option value="dark">داكن</option><option value="light">فاتح</option></select>
+        </label>
+        <label class="row"><span class="lbl"><b>حجم الخط</b></span>
+          <select id="optFont"><option value="s">صغير</option><option value="m">متوسط</option><option value="l">كبير</option></select>
+        </label>
+      </div>
+
+      <div class="group">
+        <h3>الإشعارات</h3>
+        <p class="hint inset">فعّلها ليوصلك إشعار لما يخلّص الوكيل مهمة وأنت خارج التطبيق، حتى لو كان الهاتف مطفيًا وقت التنفيذ.</p>
+        <div class="btns">
+          <button id="enablePush" class="primary">تفعيل الإشعارات على هذا الجهاز</button>
+          <button id="testPush">إرسال إشعار تجريبي</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <h3>الحساب</h3>
+        <div class="btns">
+          <button id="clearChat">مسح المحادثة</button>
+          <button id="logout" class="danger">تسجيل الخروج</button>
+        </div>
+      </div>
+      <pre id="info" class="info"></pre>
+    </div>
   </section>
 
   <nav aria-label="التنقل">
@@ -90,6 +148,19 @@
     </button>
   </nav>
 </main>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<div id="modal" class="modal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="modalText">
+    <p id="modalText"></p>
+    <div class="btns row2">
+      <button id="modalNo">إلغاء</button>
+      <button id="modalYes" class="primary">تأكيد</button>
+    </div>
+  </div>
+</div>
+<script src="/md.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
