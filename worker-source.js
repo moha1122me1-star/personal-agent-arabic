@@ -728,6 +728,9 @@ const TOOL_LABELS = {
 const TRANSIENT = new Set(['fetch_failed', 'search_failed', 'github_connection_failed', 'cloudflare_connection_failed', 'tool_failed']);
 const toolLabel = (n) => TOOL_LABELS[n] || 'ينفّذ أداة';
 
+const HUMOR = `الشخصية (وضع الكوميديا مفعّل): أنت كوميدي لأبعد درجة، خفيف الدم وسريع البديهة. امزح في كل رد بالعامية الليبية: تشبيهات مضحكة، مبالغات، سخرية لطيفة من نفسك ومن الموقف، وقفشات وردود طريفة. ابدأ أو اختم كل رد بنكتة أو تعليق ظريف مناسب للموضوع، وإن كان الموضوع طويلًا فوزّع لمسات الفكاهة بين الفقرات. ويسمح بإيموجي الضحك باعتدال.
+حدود الكوميديا: الجواب نفسه يبقى صحيحًا ومفيدًا وكاملًا؛ المزح لا يغيّر المعلومات ولا يحلّ محلها. كتل الكود والأوامر والأرقام والمواعيد تبقى دقيقة وجادة. لا تسخر من المستخدم بشكل جارح، ولا من الدين أو العرق أو الأمراض أو أشخاص حقيقيين. وإن كان المستخدم حزينًا أو مريضًا أو في أزمة أو الموضوع خطير، فكن لطيفًا وجادًا بلا مزح.
+`;
 function systemPrompt(mem, bg, extra = {}) {
   return `أنت "وكيلي": وكيل شخصي ذكي وقدير يعمل لصالح مالكه فقط عبر تطبيق على هاتفه. تتصرف كخبير متمكّن (مبرمج، محلل، باحث، منظّم أعمال) لا كمجيب سطحي.
 الوقت الآن في طرابلس: ${nowIso()}.
@@ -755,6 +758,7 @@ function systemPrompt(mem, bg, extra = {}) {
 - لا تكشف أي مفاتيح أو أسرار.
 - عندك استقلالية: جدولة مهام تنفذها بنفسك لاحقًا (schedule_task)، وكتابة ملفات للمستخدم (write_file)، والعمل على GitHub (قراءة المستودعات وIssues وPRs وحالة Actions مباشرة؛ وإنشاء فروع وPR وتعليقات وكتابة ملفات بموافقة)، وقراءة حالة Cloudflare، وفتح رابط أو تطبيق على الهاتف (بموافقة)، وإرسال webhooks (بموافقة).
 ${bg ? '- أنت الآن تنفذ مهمة مجدولة دون حضور المستخدم. نفّذها كاملة بالأدوات ثم اكتب خلاصة واضحة للنتيجة. أي أمر حساس سينتظر موافقة المستخدم ولا ينفذ وحده.' : ''}
+${extra.humor ? HUMOR : ''}
 ${extra.name ? `اسم المستخدم الذي يحب أن تناديه به: «${extra.name}». ناده به بشكل طبيعي ولا تنسه أبدًا.` : 'إذا قال المستخدم «نادني X» أو «اسمي X» فاستدعِ set_name فورًا لتحفظه للأبد.'}
 ${extra.summary ? 'ملخص محادثاتك السابقة مع المستخدم (للسياق فقط):\n' + extra.summary : ''}
 ${mem.length ? 'ملاحظات محفوظة عن المستخدم:\n- ' + mem.join('\n- ') : ''}`;
@@ -793,7 +797,7 @@ function errInfo(e) {
 
 async function agentLoop(env, run, { emit, pendings, persist }) {
   const mem = await kget(env, 'mem', []);
-  const sys = systemPrompt(mem, run.bg, { name: (await kget(env, 'profile', null))?.name, summary: await kget(env, 'sum', '') });
+  const sys = systemPrompt(mem, run.bg, { name: (await kget(env, 'profile', null))?.name, summary: await kget(env, 'sum', ''), humor: (await kget(env, 'humor', true)) !== false });
   const maxSteps = run.bg ? 14 : 18;
   let finished = false, first = true;
   while (run.step < maxSteps) {
@@ -1015,7 +1019,7 @@ async function api(request, env, url, ctx) {
 
   if (p === '/api/state' && m === 'GET') {
     const [hist, rem, watch, files, mem, subs, jobs, pends] = await Promise.all(['hist', 'rem', 'watch', 'files', 'mem', 'subs', 'jobs', 'pends'].map(k => kget(env, k, [])));
-    return json({ ready: hasProvider(env), hist: hist.slice(-30), name: (await kget(env, 'profile', null))?.name || '', reminders: rem.map(r => ({ ...r, when: fmtLocal(r.at) })), watches: watch.map(({ id, url, note, every }) => ({ id, url, note, every })), files, memory: mem, devices: subs.length, phoneBridge: Boolean(env.PHONE_TOKEN), github: Boolean(env.GITHUB_TOKEN),
+    return json({ ready: hasProvider(env), hist: hist.slice(-30), humor: (await kget(env, 'humor', true)) !== false, name: (await kget(env, 'profile', null))?.name || '', reminders: rem.map(r => ({ ...r, when: fmtLocal(r.at) })), watches: watch.map(({ id, url, note, every }) => ({ id, url, note, every })), files, memory: mem, devices: subs.length, phoneBridge: Boolean(env.PHONE_TOKEN), github: Boolean(env.GITHUB_TOKEN),
       jobs: jobs.map(j => ({ id: j.id, note: j.note, prompt: j.prompt.slice(0, 160), next: fmtLocal(j.at), daily: j.daily || 0, repeat: j.repeat || 0 })),
       pending: pends.filter(x => x.exp > Date.now()).map(x => ({ id: x.id, summary: x.summary })),
       run: await (async () => { const r = await kget(env, 'run', null); return r && r.status === 'running' && Date.now() - r.at < 30 * 60000 ? runSummary(r) : null; })() });
@@ -1097,6 +1101,7 @@ async function api(request, env, url, ctx) {
   if (p === '/api/jobs' && m === 'DELETE') return json(await runTool(env, 'cancel_scheduled_task', { id: url.searchParams.get('id') }));
   if (p === '/api/reminders' && m === 'DELETE') return json(await runTool(env, 'cancel_reminder', { id: url.searchParams.get('id') }));
   if (p === '/api/watches' && m === 'DELETE') return json(await runTool(env, 'unwatch', { id: url.searchParams.get('id') }));
+  if (p === '/api/humor' && m === 'POST') { const b = await readJson(request, 200); await kput(env, 'humor', b.on !== false); return json({ ok: true, humor: b.on !== false }); }
   if (p === '/api/history' && m === 'DELETE') { await kput(env, 'hist', []); await kput(env, 'sum', ''); return json({ ok: true }); }
   if (p === '/api/memory' && m === 'DELETE') { await kput(env, 'mem', []); return json({ ok: true }); }
   if (p === '/api/push/key' && m === 'GET') return json({ publicKey: (await getVapid(env)).pub });
