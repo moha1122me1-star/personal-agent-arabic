@@ -310,4 +310,20 @@ ok('push notifications are delivered with a 24h TTL');
 }
 ok('closing the app mid-task: the work finishes and a completion push is sent');
 
+// ---------- comedy mode ----------
+{
+  assert.match(systemPrompt([], false, { humor: true }), /كوميدي لأبعد درجة/); assert.match(systemPrompt([], false, { humor: true }), /حزينًا أو مريضًا/);
+  assert.ok(!/كوميدي لأبعد درجة/.test(systemPrompt([], false, {})));
+  store.delete('humor'); let st = await (await authed('/api/state')).json(); assert.equal(st.humor, true);
+  let before = groqBodies.length; groqQueue.push([delta('هههه')]);
+  let rr = await authed('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'سلام' }) }); await readEvents(rr); await Promise.all(bg.splice(0));
+  assert.match(groqBodies[before].messages[0].content, /كوميدي لأبعد درجة/);
+  assert.equal((await (await authed('/api/humor', { method: 'POST', body: JSON.stringify({ on: false }) })).json()).humor, false);
+  st = await (await authed('/api/state')).json(); assert.equal(st.humor, false);
+  before = groqBodies.length; groqQueue.push([delta('جد')]);
+  rr = await authed('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'سلام' }) }); await readEvents(rr); await Promise.all(bg.splice(0));
+  assert.ok(!/كوميدي لأبعد درجة/.test(groqBodies[before].messages[0].content));
+}
+ok('comedy mode is on by default, can be switched off, and reaches the model prompt');
+
 console.log(`\nall ${n} checks passed`);

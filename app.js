@@ -476,6 +476,7 @@
     list('remList', s.reminders, (b, r) => item(b, r.text, ltr(r.when) + (r.repeat ? ` · يتكرر كل ${r.repeat} د` : ''), async () => api('/api/reminders?id=' + r.id, { method: 'DELETE' })), 'ما فيه تذكيرات.');
     list('watchList', s.watches, (b, w) => item(b, w.note || w.url, `${ltr(w.url)} · كل ${w.every} د`, async () => api('/api/watches?id=' + w.id, { method: 'DELETE' })), 'ما فيه مواقع مراقَبة.');
     list('memList', s.memory, (b, m) => item(b, m), 'ما فيه ذاكرة محفوظة.');
+    $('optHumor').checked = s.humor !== false;
     $('info').textContent = `الاسم المحفوظ: ${s.name || 'لم يُحفظ بعد'}\nجسر الهاتف (Tasker): ${s.phoneBridge ? 'مفعّل' : 'غير مفعّل'}\nGitHub: ${s.github ? 'مربوط' : 'غير مربوط (GITHUB_TOKEN)'}\nأجهزة الإشعارات: ${s.devices}`;
     pushNudge(s.devices);
   }
@@ -513,6 +514,7 @@
     const e = $(id); const v = store.get(key); if (v !== '') e.checked = v === '1';
     e.onchange = () => { store.set(key, e.checked ? '1' : '0'); if (id === 'optConv' && e.checked) { $('optAutoSend').checked = true; store.set('autoSend', '1'); tab('chat'); listenSoon(); } };
   }
+  $('optHumor').onchange = async () => { const on = $('optHumor').checked; try { await api('/api/humor', { method: 'POST', json: { on } }); toast(on ? 'وضع الكوميديا شغّال 😂' : 'رجعنا للجد'); } catch (e) { $('optHumor').checked = !on; toast(errText(e)); } };
   $('optLang').value = store.get('lang', 'ar-LY'); $('optLang').onchange = () => store.set('lang', $('optLang').value);
   $('optTheme').value = store.get('theme', 'auto'); $('optTheme').onchange = () => { store.set('theme', $('optTheme').value); applyTheme(); };
   $('optFont').value = store.get('fs', 'm'); $('optFont').onchange = () => { store.set('fs', $('optFont').value); applyTheme(); };
