@@ -199,7 +199,14 @@
       if (this.shown < this.target.length) this.kick(); else if (this.done) this.settle();
       this.updateDots();
     }
-    paint() { mdRender(this.body, this.target.slice(0, this.shown), this.cache); scrollEnd(); }
+    paint() {
+      let t = this.target.slice(0, this.shown);
+      if (this.shown < this.target.length) { // hide a table that is still arriving (raw pipes flicker until the header separator row exists)
+        const m = /(?:^|\n)((?:[ \t]*\|[^\n]*\n?)+)$/.exec(t);
+        if (m && !/^[ \t]*\|[ \t:|-]*-[ \t:|-]*\|?[ \t]*$/m.test(m[1])) t = t.slice(0, m.index);
+      }
+      mdRender(this.body, t, this.cache); scrollEnd();
+    }
     finish(text) {
       if (typeof text === 'string' && text) this.target = text;
       this.done = true; this.running = 0; this.kick(); if (this.shown >= this.target.length) this.settle();
