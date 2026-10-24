@@ -11,9 +11,9 @@
 - **Cloudflare (قراءة فقط)**: يعرض Workers في حسابك وآخر عمليات النشر. لا يعدّل شيئًا.
 - **الهاتف وChrome**: يفتح رابطًا أو تطبيقًا (WhatsApp، Instagram، X…) على هاتفك عبر جسر Tasker، بعد موافقتك.
 - **Webhooks**: يرسل POST لأي رابط (Discord، n8n، IFTTT…) بعد موافقتك.
-- بحث في الويب، قراءة صفحات، وذاكرة دائمة لتفضيلاتك.
+- بحث في الويب (Gemini إن وُجد مفتاحه، وإلا DuckDuckGo بدون مفتاح)، قراءة صفحات، وذاكرة دائمة لتفضيلاتك.
 - أوامر على الهاتف (فتح تطبيق، رابط، إشعار) عبر Tasker/MacroDroid، كل أمر بموافقتك.
-- للرسائل والمهام: يجرب Groq أولًا، ثم Cloudflare Workers AI تلقائيًا عند الفشل، ثم Gemini إن كان مفتاحه مضبوطًا. تحليل الملفات والصوت وبعض وظائف البحث ما زالت تستخدم واجهات Gemini، لذلك احتفظ بمفتاح Gemini إذا تبي كل هذه الميزات.
+- للرسائل والمهام: إن ضبطت `ANTHROPIC_API_KEY` يستعمل **Claude** أولًا (أذكى خيار وأقرب لأسلوب Claude)، ثم Groq (يجرب أكثر من نموذج لأن لكل نموذج حصته)، ثم Cloudflare Workers AI تلقائيًا عند الفشل، ثم Gemini إن كان مفتاحه مضبوطًا. تحليل الملفات والصوت وبعض وظائف البحث ما زالت تستخدم واجهات Gemini، لذلك احتفظ بمفتاح Gemini إذا تبي كل هذه الميزات.
 
 أمثلة: «ارفع zip مشروعك وقل: راجع الكود وأنشئ Issue بالمشاكل»، «كل أحد 9 صباحًا لخّص لي تغيّرات مستودع o/r هذا الأسبوع»، «اكتب لي README للمشروع وخزنه ملف».
 
@@ -38,6 +38,8 @@
    - `ACCESS_TOKEN` = كلمة سر طويلة عشوائية (30+ حرف). هي اللي تدخل بها التطبيق.
    - `GROQ_API_KEY` = مفتاح Groq (اختياري؛ يفضّل تفعيله ليكون الأساسي).
    - `GEMINI_API_KEY` = مفتاح Gemini (اختياري لكنه مطلوب لميزات تحليل الملفات والصوت والبحث التي تستخدم Gemini مباشرة).
+   - اختياري (لأعلى ذكاء): `ANTHROPIC_API_KEY` = مفتاح من console.anthropic.com (مدفوع بالاستهلاك). الافتراضي `ANTHROPIC_MODEL` = `claude-sonnet-5-5`.
+   - اختياري: `GROQ_FALLBACK_MODELS` = نماذج Groq احتياطية مفصولة بفاصلة (الافتراضي `llama-3.3-70b-versatile`).
    - اختياري: `GROQ_MODEL` (الافتراضي `openai/gpt-oss-120b`)، `CF_AI_MODEL` (الافتراضي `@cf/zai-org/glm-4.7-flash`). تأكد من أن النموذج المختار متاح لحسابك ويدعم tool calling.
    - اختياري: `CF_API_TOKEN` و`CF_ACCOUNT_ID` لقراءة Cloudflare. أنشئ API Token من dash.cloudflare.com/profile/api-tokens بصلاحية **Workers Scripts: Read** فقط (لا تعطه صلاحية Edit). و`CF_ACCOUNT_ID` تجده في صفحة Workers & Pages.
    - اختياري: `GITHUB_TOKEN` (من github.com/settings/personal-access-tokens ← Fine-grained token ← اختر مستودعاتك فقط ← Contents: Read and write، Issues: Read and write، Pull requests: Read and write، Actions: Read، Metadata: Read). لا تعطيه أكثر من اللازم.

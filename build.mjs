@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 const types = {
   'index.html': 'text/html; charset=utf-8',
   'app.js': 'text/javascript; charset=utf-8',
+  'md.js': 'text/javascript; charset=utf-8',
   'app.css': 'text/css; charset=utf-8',
   'sw.js': 'text/javascript; charset=utf-8',
   'manifest.webmanifest': 'application/manifest+json',

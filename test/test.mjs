@@ -10,7 +10,7 @@ const call = (path, init, env = { ACCESS_TOKEN: 'x'.repeat(32), KV: {} }) => wor
 
 let n = 0; const ok = (name) => console.log('ok', ++n, name);
 
-for (const [path, type] of [['/', 'text/html'], ['/index.html', 'text/html'], ['/app.js', 'text/javascript'], ['/app.css', 'text/css'], ['/sw.js', 'text/javascript'], ['/manifest.webmanifest', 'application/manifest+json'], ['/icon.svg', 'image/svg+xml']]) {
+for (const [path, type] of [['/', 'text/html'], ['/index.html', 'text/html'], ['/app.js', 'text/javascript'], ['/md.js', 'text/javascript'], ['/app.css', 'text/css'], ['/sw.js', 'text/javascript'], ['/manifest.webmanifest', 'application/manifest+json'], ['/icon.svg', 'image/svg+xml']]) {
   const r = await call(path); assert.equal(r.status, 200, path); assert.ok(r.headers.get('content-type').startsWith(type), path);
   assert.match(r.headers.get('content-security-policy'), /default-src 'self'/); assert.equal(r.headers.get('x-frame-options'), 'DENY');
   ok('asset ' + path);
@@ -28,21 +28,28 @@ ok('every $(id) in app.js exists in index.html');
 assert.ok(!/style="/.test(html) && !/<script>[^<]/.test(html) && !/<style/.test(html), 'inline style/script would break CSP'); ok('no inline style/script (CSP-safe)');
 assert.ok(!/https?:\/\/(fonts|cdn)/.test(html + css), 'external resources would break CSP'); ok('no external resources');
 assert.ok(!/gemini_not_configured' \?/.test(js)); ok('no stale Gemini-only error text');
+for (const m of html.matchAll(/<script src="(\/[^"]+)"/g)) assert.equal((await call(m[1])).status, 200, m[1] + ' must be served'); ok('every <script src> in index.html is served by the worker');
 
 // ---------- tool-level tests (runTool exposed through a temporary copy; production worker is untouched) ----------
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const tmp = mkdtempSync(join(tmpdir(), 'agent-test-'));
-writeFileSync(join(tmp, 'w.mjs'), readFileSync('dist/worker.js', 'utf8') + '\nexport { runTool, DECLS, APPROVAL_TOOLS, systemPrompt };\n');
-const { runTool, DECLS, APPROVAL_TOOLS, systemPrompt } = await import(join(tmp, 'w.mjs'));
+writeFileSync(join(tmp, 'w.mjs'), readFileSync('dist/worker.js', 'utf8') + '\nexport { runTool, agentModel, anthropicMessages, DECLS, APPROVAL_TOOLS, systemPrompt, openAiMessages, fromOpenAi, executeRun, newRun, initRun, resumeStalledRun, runSummary, pushAll };\n');
+const mod = await import(join(tmp, 'w.mjs'));
+const { runTool, agentModel, anthropicMessages, DECLS, APPROVAL_TOOLS, systemPrompt, openAiMessages, fromOpenAi, executeRun, newRun, initRun, resumeStalledRun, runSummary } = mod;
 
 const store = new Map();
 const KV = { async get(k, type) { const v = store.get(k); if (v === undefined) return null; return type === 'json' ? JSON.parse(v) : v; }, async put(k, v) { store.set(k, v); }, async delete(k) { store.delete(k); } };
 const calls = [];
+const groqQueue = [], groqBodies = [], anthQueue = [], anthBodies = [];
+const sse = (events) => new Response(new ReadableStream({ start(c) { const te = new TextEncoder(); for (const e of events) c.enqueue(te.encode('data: ' + JSON.stringify(e) + '\n\n')); c.enqueue(te.encode('data: [DONE]\n\n')); c.close(); } }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
 globalThis.fetch = async (url, init = {}) => {
   url = String(url); calls.push({ url, method: init.method || 'GET', body: init.body ? JSON.parse(init.body) : null, auth: init.headers?.Authorization });
   const reply = (j, status = 200) => new Response(JSON.stringify(j), { status, headers: { 'content-type': 'application/json' } });
+  if (url.includes('api.anthropic.com/v1/messages')) { anthBodies.push(JSON.parse(init.body)); const next = anthQueue.shift(); if (!next) return reply({ error: { type: 'x' } }, 500); return typeof next === 'number' ? reply({ error: { type: 'x' } }, next) : sse(next); }
+  if (url.startsWith('https://html.duckduckgo.com/html/')) return new Response('<div class="result"><a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fa&amp;rut=1">مثال &amp; عنوان</a><a class="result__snippet" href="x">ملخص <b>النتيجة</b></a></div><div class="result"><a class="result__a" href="https://example.org/b">ثان</a></div>', { status: 200, headers: { 'content-type': 'text/html' } });
+  if (url.includes('api.groq.com/openai/v1/chat/completions')) { groqBodies.push(JSON.parse(init.body)); const next = groqQueue.shift(); if (!next) return reply({ error: { message: 'no mock' } }, 500); return typeof next === 'number' ? reply({ error: { message: 'x' } }, next) : sse(next); }
   if (url.endsWith('/repos/o/r')) return reply({ default_branch: 'main' });
   if (url.includes('/git/ref/heads/main')) return reply({ object: { sha: 'abc123' } });
   if (url.endsWith('/git/refs')) return reply({ ref: 'refs/heads/feat' }, 201);
@@ -105,9 +112,149 @@ r = await runTool(env, 'cf_deployments', { script: 'my-agent' }); assert.equal(r
 assert.equal((await runTool(env, 'cf_deployments', { script: '../x' })).error, 'bad_arguments');
 ok('cloudflare tools are read-only, configured by secrets, and validate input');
 
-// concise-reply rules reach the model (foreground and background prompts)
-for (const bg of [false, true]) { const sp = systemPrompt([], bg); assert.ok(sp.includes('ممنوع الجداول') && sp.includes('سطر أو سطرين')); }
+// the prompt asks for depth that matches the question, Markdown formatting, and keeps saved memory
+for (const bg of [false, true]) { const sp = systemPrompt([], bg); assert.ok(sp.includes('Markdown') && sp.includes('كتل كود') && sp.includes('search_web')); assert.equal(sp.includes('ممنوع الجداول'), false); assert.equal(sp.includes('أنت الآن تنفذ مهمة مجدولة'), bg); }
 assert.ok(systemPrompt(['يحب الاختصار'], false).includes('يحب الاختصار'));
-ok('system prompt enforces short mobile-friendly replies and keeps memory');
+ok('system prompt allows rich Markdown answers, asks for verification, and keeps memory');
+
+// parallel calls to the same tool must each get their own result (regression: ids used to collide)
+{
+  const msgs = openAiMessages({ systemInstruction: { parts: [{ text: 's' }] }, contents: [
+    { role: 'user', parts: [{ text: 'hi' }] },
+    { role: 'model', parts: [{ functionCall: { name: 'read_file', args: { id: 'a' } }, cid: 'c1' }, { functionCall: { name: 'read_file', args: { id: 'b' } }, cid: 'c2' }] },
+    { role: 'user', parts: [{ functionResponse: { name: 'read_file', response: { t: 'A' } }, cid: 'c1' }, { functionResponse: { name: 'read_file', response: { t: 'B' } }, cid: 'c2' }] },
+    { role: 'model', parts: [{ functionCall: { name: 'x', args: {} } }, { functionCall: { name: 'x', args: {} } }] },
+    { role: 'user', parts: [{ functionResponse: { name: 'x', response: { n: 1 } } }, { functionResponse: { name: 'x', response: { n: 2 } } }] },
+  ] });
+  const tools = msgs.filter(m => m.role === 'tool');
+  assert.deepEqual(tools.slice(0, 2).map(m => m.tool_call_id), ['c1', 'c2']);
+  const ids = msgs.filter(m => m.tool_calls).at(-1).tool_calls.map(c => c.id);
+  assert.deepEqual(tools.slice(2).map(m => m.tool_call_id), ids); assert.notEqual(ids[0], ids[1]);
+  assert.deepEqual(fromOpenAi({ response: 'مرحبا' }, 'workers_ai').candidates[0].content.parts, [{ text: 'مرحبا' }]);
+}
+ok('tool results map to their own call ids; Workers AI plain responses parse');
+
+// ---------- streaming chat, background survival, resume ----------
+const chatEnv = { ACCESS_TOKEN: 'x'.repeat(32), KV, GROQ_API_KEY: 'g' };
+const bg = [];
+const ctx = { waitUntil: (p) => bg.push(p) };
+const authed = (path, init = {}) => mod.default.fetch(new Request('https://t.test' + path, { ...init, headers: { Authorization: 'Bearer ' + chatEnv.ACCESS_TOKEN, 'Content-Type': 'application/json', ...(init.headers || {}) } }), chatEnv, ctx);
+const readEvents = async (res) => { const out = []; const rd = res.body.getReader(), td = new TextDecoder(); let buf = ''; for (;;) { const { done, value } = await rd.read(); if (done) break; buf += td.decode(value, { stream: true }); } for (const part of buf.split('\n\n')) for (const l of part.split('\n')) if (l.startsWith('data:')) out.push(JSON.parse(l.slice(5))); return out; };
+const delta = (content) => ({ choices: [{ delta: { content } }] });
+const toolDelta = (index, id, name, args) => ({ choices: [{ delta: { tool_calls: [{ index, ...(id ? { id } : {}), function: { ...(name ? { name } : {}), arguments: args } }] } }] });
+
+// 1) plain streamed answer
+groqQueue.push([delta('مرحبا '), delta('بك **يا** صديقي')]);
+let res = await authed('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'سلام' }) });
+assert.equal(res.status, 200); assert.match(res.headers.get('content-type'), /text\/event-stream/);
+let ev = await readEvents(res); await Promise.all(bg.splice(0));
+assert.equal(ev[0].t, 'run'); assert.deepEqual(ev.filter(e => e.t === 'text').map(e => e.d), ['مرحبا ', 'بك **يا** صديقي']);
+assert.equal(ev.at(-1).t, 'done'); assert.equal(ev.at(-1).reply, 'مرحبا بك **يا** صديقي');
+assert.equal(groqBodies.at(-1).stream, true); assert.equal(groqBodies.at(-1).reasoning_effort, 'medium');
+let hist = JSON.parse(store.get('hist')); assert.deepEqual(hist.map(h => h.role), ['user', 'model']); assert.equal(hist[1].text, 'مرحبا بك **يا** صديقي');
+assert.equal(JSON.parse(store.get('run')).status, 'done');
+ok('/api/chat streams text deltas as SSE, saves history and finishes the run');
+
+// 2) two parallel tool calls with the same name, then the answer
+groqQueue.push([delta('سأفحص. '), toolDelta(0, 'c1', 'list_files', ''), toolDelta(0, null, null, '{}'), toolDelta(1, 'c2', 'list_files', '{}')], [delta('لا توجد ملفات.')]);
+res = await authed('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'ملفاتي؟' }) });
+ev = await readEvents(res); await Promise.all(bg.splice(0));
+assert.deepEqual(ev.filter(e => e.t === 'tools')[0].items.map(i => i.id), ['c1', 'c2']); assert.equal(ev.filter(e => e.t === 'tool_done').length, 2);
+assert.equal(ev.filter(e => e.t === 'tools')[0].items[0].label, 'يتصفح الملفات');
+const second = groqBodies.at(-1).messages; assert.deepEqual(second.filter(m => m.role === 'tool').map(m => m.tool_call_id), ['c1', 'c2']);
+assert.equal(ev.at(-1).reply, 'سأفحص. \n\nلا توجد ملفات.');
+ok('parallel tool calls are answered per id and step texts are joined with a paragraph break');
+
+// 3) provider fails mid-stream: partial text is reset and Workers AI answers instead
+chatEnv.AI = { run: async () => ({ response: 'رد احتياطي' }) };
+groqQueue.push(500);
+res = await authed('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'اختبار' }) });
+ev = await readEvents(res); await Promise.all(bg.splice(0));
+assert.equal(ev.at(-1).reply, 'رد احتياطي'); delete chatEnv.AI;
+ok('falls back to Workers AI when Groq fails');
+
+// 4) the app closes mid-answer: the run still completes and the answer is saved for the next visit
+groqQueue.push([delta('جزء أول '), delta('وجزء ثاني')]);
+res = await authed('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'اكمل بدوني' }) });
+const rd = res.body.getReader(); await rd.read(); await rd.cancel();
+await Promise.all(bg.splice(0));
+assert.equal(JSON.parse(store.get('run')).status, 'done'); assert.equal(JSON.parse(store.get('hist')).at(-1).text, 'جزء أول وجزء ثاني');
+ok('closing the app mid-run does not stop the run');
+
+// 5) a cut-off run is resumed by the cron tick from its last checkpoint, then the user is notified
+{
+  const stale = newRun('مهمة طويلة', 'مهمة طويلة'); await initRun(chatEnv, stale, [{ text: 'مهمة طويلة' }]);
+  stale.contents.push({ role: 'model', parts: [{ functionCall: { name: 'list_files', args: {} }, cid: 'k1' }] }, { role: 'user', parts: [{ functionResponse: { name: 'list_files', response: { files: [] } }, cid: 'k1' }] });
+  stale.step = 1; stale.acc = 'بدأت. '; stale.hb = Date.now() - 200000;
+  store.set('run', JSON.stringify(stale));
+  store.set('subs', JSON.stringify([]));
+  groqQueue.push([delta('انتهيت.')]);
+  await resumeStalledRun(chatEnv);
+  const r = JSON.parse(store.get('run')); assert.equal(r.status, 'done'); assert.equal(r.resumed, 1); assert.equal(r.reply, 'بدأت. \n\nانتهيت.');
+  assert.ok(groqBodies.at(-1).messages.some(m => m.role === 'tool' && m.tool_call_id === 'k1'));
+  // a fresh heartbeat is left alone
+  const live = { ...r, status: 'running', hb: Date.now() }; store.set('run', JSON.stringify(live)); await resumeStalledRun(chatEnv); assert.equal(JSON.parse(store.get('run')).status, 'running');
+}
+ok('cron resumes a stalled run from its checkpoint and leaves live runs alone');
+
+// 6) one run at a time, cancel works
+res = await authed('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'ثاني' }) }); assert.equal(res.status, 409); assert.equal((await res.json()).error, 'run_active');
+res = await authed('/api/run/cancel', { method: 'POST' }); assert.equal(res.status, 200); assert.equal(JSON.parse(store.get('run')).status, 'cancelled');
+const stopped = newRun('x', 'x'); await initRun(chatEnv, stopped, [{ text: 'x' }]); store.set('run', JSON.stringify({ ...stopped, status: 'cancelled' }));
+assert.equal((await executeRun(chatEnv, stopped, { persist: true })).status, 'cancelled');
+res = await authed('/api/state'); assert.equal((await res.json()).run, null);
+ok('only one run at a time; cancel stops the run');
+
+// 7) JSON mode and unconfigured provider
+groqQueue.push([delta('رد عادي')]);
+res = await authed('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'سلام', stream: false }) });
+assert.equal((await res.json()).reply, 'رد عادي');
+res = await mod.default.fetch(new Request('https://t.test/api/chat', { method: 'POST', headers: { Authorization: 'Bearer ' + chatEnv.ACCESS_TOKEN }, body: '{"message":"a"}' }), { ACCESS_TOKEN: chatEnv.ACCESS_TOKEN, KV }, ctx);
+assert.equal(res.status, 503);
+ok('non-streaming JSON mode works; missing providers are reported');
+
+// 8) completion pushes carry quiet/tag and a 24h TTL
+{
+  const pushes = []; const realFetch = globalThis.fetch;
+  const kp = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const raw = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey)); const b64u = (u) => Buffer.from(u).toString('base64url');
+  store.set('subs', JSON.stringify([{ endpoint: 'https://fcm.googleapis.com/fcm/send/abc', keys: { p256dh: b64u(raw), auth: b64u(crypto.getRandomValues(new Uint8Array(16))) } }]));
+  globalThis.fetch = async (url, init) => { if (String(url).startsWith('https://fcm.googleapis.com')) { pushes.push(init.headers); return new Response(null, { status: 201 }); } return realFetch(url, init); };
+  await mod.pushAll(chatEnv, 'اكتملت المهمة', '**تمّ** الأمر', { quiet: true, tag: 'run-1' });
+  globalThis.fetch = realFetch;
+  assert.equal(pushes.length, 1); assert.equal(pushes[0].TTL, '86400');
+}
+ok('push notifications are delivered with a 24h TTL');
+
+// ---------- providers: Claude first, Groq model chain, keyless web search ----------
+{
+  const evs = (l) => l.map(e => ({ ...e }));
+  const text = (i, t) => [{ type: 'content_block_start', index: i, content_block: { type: 'text', text: '' } }, { type: 'content_block_delta', index: i, delta: { type: 'text_delta', text: t } }];
+  const hooksSeen = []; const hooks = { onText: (d) => hooksSeen.push(d), onReset: () => hooksSeen.push('RESET') };
+  const body = { systemInstruction: { parts: [{ text: 'sys' }] }, tools: [{ functionDeclarations: DECLS.slice(0, 2) }], contents: [
+    { role: 'model', parts: [{ text: 'قديم' }] }, // a history that starts with the assistant must be trimmed
+    { role: 'user', parts: [{ text: 'سلام' }] },
+    { role: 'model', parts: [{ text: 'هلا' }, { functionCall: { name: 'list_reminders', args: {} }, cid: 't1' }] },
+    { role: 'user', parts: [{ functionResponse: { name: 'list_reminders', response: { reminders: [] } }, cid: 't1' }] }] };
+  const am = anthropicMessages(body);
+  assert.equal(am[0].role, 'user'); assert.deepEqual(am.map(m => m.role), ['user', 'assistant', 'user']);
+  assert.deepEqual(am[1].content.map(b => b.type), ['text', 'tool_use']); assert.equal(am[2].content[0].tool_use_id, 't1');
+  const aenv = { KV, ANTHROPIC_API_KEY: 'sk-ant-test', GROQ_API_KEY: 'g' };
+  anthQueue.push([...text(0, 'أهلا '), ...text(0, 'بك'), { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_9', name: 'list_files' } }, { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{}' } }, { type: 'message_stop' }]);
+  const res1 = await agentModel(aenv, body, hooks);
+  assert.deepEqual(res1.candidates[0].content.parts.map(p => p.text || p.functionCall.name), ['أهلا بك', 'list_files']); assert.equal(res1.candidates[0].content.parts[1].cid, 'toolu_9');
+  assert.equal(anthBodies.at(-1).model, 'claude-sonnet-5-5'); assert.equal(anthBodies.at(-1).stream, true); assert.equal(anthBodies.at(-1).system, 'sys'); assert.equal(anthBodies.at(-1).tools[0].input_schema.type, 'object');
+  ok('Claude (Anthropic) is used first when ANTHROPIC_API_KEY is set, streams text and tool calls');
+  // Claude fails -> Groq primary fails (429) -> second Groq model answers
+  const before = groqBodies.length; anthQueue.push(529); groqQueue.push(429, [delta('من النموذج الثاني')]);
+  const res2 = await agentModel(aenv, body, hooks);
+  assert.equal(res2.candidates[0].content.parts[0].text, 'من النموذج الثاني');
+  assert.deepEqual(groqBodies.slice(before).map(b => b.model), ['openai/gpt-oss-120b', 'llama-3.3-70b-versatile']);
+  ok('a rate-limited provider falls through to the next Groq model before weaker providers');
+  // keyless web search via DuckDuckGo
+  const sr = await runTool({ KV }, 'search_web', { query: 'اختبار' });
+  assert.deepEqual(sr.sources, ['https://example.com/a', 'https://example.org/b']); assert.match(sr.answer, /مثال & عنوان\nملخص النتيجة\nhttps:\/\/example.com\/a/);
+  ok('search_web works without a Gemini key');
+}
 
 console.log(`\nall ${n} checks passed`);
