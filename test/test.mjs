@@ -35,9 +35,9 @@ import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const tmp = mkdtempSync(join(tmpdir(), 'agent-test-'));
-writeFileSync(join(tmp, 'w.mjs'), readFileSync('dist/worker.js', 'utf8') + '\nexport { runTool, agentModel, anthropicMessages, DECLS, APPROVAL_TOOLS, systemPrompt, openAiMessages, fromOpenAi, executeRun, newRun, initRun, resumeStalledRun, runSummary, pushAll };\n');
+writeFileSync(join(tmp, 'w.mjs'), readFileSync('dist/worker.js', 'utf8') + '\nexport { maybeSummarize, errInfo, runTool, agentModel, anthropicMessages, DECLS, APPROVAL_TOOLS, systemPrompt, openAiMessages, fromOpenAi, executeRun, newRun, initRun, resumeStalledRun, runSummary, pushAll };\n');
 const mod = await import(join(tmp, 'w.mjs'));
-const { runTool, agentModel, anthropicMessages, DECLS, APPROVAL_TOOLS, systemPrompt, openAiMessages, fromOpenAi, executeRun, newRun, initRun, resumeStalledRun, runSummary } = mod;
+const { maybeSummarize, errInfo, runTool, agentModel, anthropicMessages, DECLS, APPROVAL_TOOLS, systemPrompt, openAiMessages, fromOpenAi, executeRun, newRun, initRun, resumeStalledRun, runSummary } = mod;
 
 const store = new Map();
 const KV = { async get(k, type) { const v = store.get(k); if (v === undefined) return null; return type === 'json' ? JSON.parse(v) : v; }, async put(k, v) { store.set(k, v); }, async delete(k) { store.delete(k); } };
@@ -256,5 +256,58 @@ ok('push notifications are delivered with a 24h TTL');
   assert.deepEqual(sr.sources, ['https://example.com/a', 'https://example.org/b']); assert.match(sr.answer, /مثال & عنوان\nملخص النتيجة\nhttps:\/\/example.com\/a/);
   ok('search_web works without a Gemini key');
 }
+
+// ---------- name memory, summaries, clearer errors, retries ----------
+{
+  store.delete('profile'); store.delete('sum');
+  assert.deepEqual(await runTool({ KV }, 'set_name', { name: 'محمد\nكبير' }), { ok: true, name: 'محمد كبير' });
+  assert.equal(JSON.parse(store.get('profile')).name, 'محمد كبير'); assert.equal((await runTool({ KV }, 'set_name', { name: '  ' })).error, 'bad_arguments');
+  assert.match(systemPrompt([], false, { name: 'محمد' }), /«محمد»/); assert.match(systemPrompt([], false, {}), /set_name/); assert.match(systemPrompt([], false, { summary: 'كان يسأل عن X' }), /كان يسأل عن X/);
+  // profile survives clearing the chat and reaches the model prompt on the next turn
+  let r2 = await authed('/api/history', { method: 'DELETE' }); assert.equal(r2.status, 200); assert.equal(JSON.parse(store.get('profile')).name, 'محمد كبير');
+  groqQueue.push([delta('أهلا')]); const before = groqBodies.length;
+  r2 = await authed('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'مرحبا' }) }); await readEvents(r2); await Promise.all(bg.splice(0));
+  assert.match(groqBodies[before].messages[0].content, /«محمد كبير»/);
+  assert.equal((await (await authed('/api/state')).json()).name, 'محمد كبير');
+  ok('the name the user asks for is saved forever and sent to the model every turn');
+
+  // long chats fold into a summary and keep the most recent turns
+  const big = Array.from({ length: 44 }, (_, i) => ({ role: i % 2 ? 'model' : 'user', text: 'رسالة ' + i, at: i }));
+  store.set('hist', JSON.stringify(big)); groqQueue.push([delta('ملخص: المستخدم يسأل عن كذا')]);
+  await maybeSummarize(chatEnv);
+  assert.equal(JSON.parse(store.get('hist')).length, 20); assert.equal(JSON.parse(store.get('hist')).at(-1).text, 'رسالة 43'); assert.match(JSON.parse(store.get('sum')), /ملخص/);
+  store.set('hist', JSON.stringify(big.slice(0, 10))); await maybeSummarize(chatEnv); assert.equal(JSON.parse(store.get('hist')).length, 10);
+  ok('old conversation turns are summarised, recent ones kept, short chats untouched');
+
+  // provider errors say which provider failed and why
+  const e = Object.assign(new Error('groq_429'), { detail: ['groq_429', 'groq_429', 'gemini_403'] });
+  assert.equal(errInfo(e).hint, 'Groq: وصل حدّه المؤقت · Gemini: المفتاح غير صالح أو غير مصرّح. جرّب بعد دقيقة.');
+  ok('rate-limit errors name the provider and the reason');
+
+  // a transient model failure is retried once; a transient tool failure too
+  const rEnv = { ...chatEnv, RETRY_DELAY_MS: 1 };
+  groqQueue.push(503, 503, [delta('نجح بعد إعادة')]); // chain of 2 groq models fails, retry round succeeds
+  const rr = newRun('t', 't'); await initRun(rEnv, rr, [{ text: 't' }]); store.set('run', JSON.stringify(rr));
+  const done = await executeRun(rEnv, rr, { persist: true }); assert.equal(done.status, 'done'); assert.equal(done.reply, 'نجح بعد إعادة');
+  ok('a transient provider failure is retried automatically');
+}
+
+// ---------- leaving the app mid-task still ends with a push notification ----------
+{
+  const pushes = []; const realFetch = globalThis.fetch;
+  const kp = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const raw = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey)); const b64u2 = (u) => Buffer.from(u).toString('base64url');
+  store.set('subs', JSON.stringify([{ endpoint: 'https://fcm.googleapis.com/fcm/send/zzz', keys: { p256dh: b64u2(raw), auth: b64u2(crypto.getRandomValues(new Uint8Array(16))) } }]));
+  globalThis.fetch = async (url, init) => { if (String(url).startsWith('https://fcm.googleapis.com')) { pushes.push(url); return new Response(null, { status: 201 }); } return realFetch(url, init); };
+  store.set('run', JSON.stringify({ status: 'done' }));
+  groqQueue.push([delta('نتيجة المهمة الطويلة')]);
+  const res9 = await authed('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'اشتغل وأنا طالع' }) });
+  const rd9 = res9.body.getReader(); await rd9.read(); await rd9.cancel(); // the user closes the app
+  await Promise.all(bg.splice(0)); globalThis.fetch = realFetch;
+  assert.equal(JSON.parse(store.get('run')).status, 'done'); assert.equal(pushes.length, 1);
+  assert.equal(JSON.parse(store.get('hist')).at(-1).text, 'نتيجة المهمة الطويلة');
+  store.set('subs', JSON.stringify([]));
+}
+ok('closing the app mid-task: the work finishes and a completion push is sent');
 
 console.log(`\nall ${n} checks passed`);

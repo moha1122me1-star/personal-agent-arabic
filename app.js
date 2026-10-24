@@ -427,9 +427,9 @@
   $('mic').onclick = async () => {
     try {
       if (rec) { rec.stop(); return; }
-      if (wav) { const bytes = wav.stop(); wav = null; setRec(false); if (bytes.length > 1_000_000) { addSys('التسجيل طويل، اختصره', 'err'); return; } const ids = attached.map(f => f.id); attached = []; renderChips(); await send({ audio: { mime: 'audio/wav', data: u8ToB64(bytes) }, fileIds: ids }); return; }
+      if (wav) { const bytes = wav.stop(); wav = null; setRec(false); if (bytes.length > 1_000_000) { addSys('التسجيل طويل، اختصره', 'err'); return; } const ids = attached.map(f => f.id); attached = []; renderChips(); await send({ audio: { mime: 'audio/wav', data: u8ToB64(bytes), lang: $('optLang').value }, fileIds: ids }); return; }
       speechSynthesis?.cancel?.();
-      if (SR) startSR(); else await startWav();
+      if (SR && !$('optWhisper').checked) startSR(); else await startWav();
     } catch (e) { setRec(false); addSys('تعذّر تشغيل الميكروفون: ' + (e.message || e.name), 'err'); }
   };
 
@@ -476,7 +476,7 @@
     list('remList', s.reminders, (b, r) => item(b, r.text, ltr(r.when) + (r.repeat ? ` · يتكرر كل ${r.repeat} د` : ''), async () => api('/api/reminders?id=' + r.id, { method: 'DELETE' })), 'ما فيه تذكيرات.');
     list('watchList', s.watches, (b, w) => item(b, w.note || w.url, `${ltr(w.url)} · كل ${w.every} د`, async () => api('/api/watches?id=' + w.id, { method: 'DELETE' })), 'ما فيه مواقع مراقَبة.');
     list('memList', s.memory, (b, m) => item(b, m), 'ما فيه ذاكرة محفوظة.');
-    $('info').textContent = `جسر الهاتف (Tasker): ${s.phoneBridge ? 'مفعّل' : 'غير مفعّل'}\nGitHub: ${s.github ? 'مربوط' : 'غير مربوط (GITHUB_TOKEN)'}\nأجهزة الإشعارات: ${s.devices}`;
+    $('info').textContent = `الاسم المحفوظ: ${s.name || 'لم يُحفظ بعد'}\nجسر الهاتف (Tasker): ${s.phoneBridge ? 'مفعّل' : 'غير مفعّل'}\nGitHub: ${s.github ? 'مربوط' : 'غير مربوط (GITHUB_TOKEN)'}\nأجهزة الإشعارات: ${s.devices}`;
     pushNudge(s.devices);
   }
   async function download(f) {
@@ -509,7 +509,7 @@
   $('clearChat').onclick = newChat; $('newChat').onclick = newChat;
 
   // ---------- settings ----------
-  for (const [id, key] of [['optVoiceOut', 'voiceOut'], ['optAutoSend', 'autoSend'], ['optConv', 'conv']]) {
+  for (const [id, key] of [['optWhisper', 'whisper'], ['optVoiceOut', 'voiceOut'], ['optAutoSend', 'autoSend'], ['optConv', 'conv']]) {
     const e = $(id); const v = store.get(key); if (v !== '') e.checked = v === '1';
     e.onchange = () => { store.set(key, e.checked ? '1' : '0'); if (id === 'optConv' && e.checked) { $('optAutoSend').checked = true; store.set('autoSend', '1'); tab('chat'); listenSoon(); } };
   }

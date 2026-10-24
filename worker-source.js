@@ -233,9 +233,9 @@ async function cloudflareRequest(env, body) {
 }
 // hooks: { onText(delta), onReset() }. Non-streaming providers deliver their text in one onText call.
 async function agentModel(env, body, hooks = {}) {
-  const failures = [];
+  const failures = [], detail = [];
   const whole = (res) => { const t = textOf(res); if (t) hooks.onText?.(t); return res; };
-  const tryStream = async (fn) => { let emitted = false; try { return await fn({ ...hooks, onText: (d) => { emitted = true; hooks.onText?.(d); } }); } catch (e) { if (emitted) hooks.onReset?.(); failures.push(String(e.message || e)); return null; } };
+  const tryStream = async (fn) => { let emitted = false; try { return await fn({ ...hooks, onText: (d) => { emitted = true; hooks.onText?.(d); } }); } catch (e) { if (emitted) hooks.onReset?.(); failures.push(String(e.message || e)); detail.push(String(e.message || e)); return null; } };
   if (env.ANTHROPIC_API_KEY) { const r = await tryStream((h) => anthropicStream(env, body, h)); if (r) return r; }
   if (env.GROQ_API_KEY) for (const m of groqModels(env)) { const r = await tryStream((h) => groqStream(env, body, h, m)); if (r) return r; }
   if (env.AI?.run) {
@@ -244,7 +244,7 @@ async function agentModel(env, body, hooks = {}) {
   if (env.GEMINI_API_KEY) {
     try { return whole(await gemini(env, stripCid(body))); } catch (e) { failures.push(String(e.message || e)); }
   }
-  throw new Error(failures.find(x => /429|rate|quota/i.test(x)) || failures[0] || 'ai_provider_not_configured');
+  const err = new Error(failures.find(x => /429|rate|quota/i.test(x)) || failures[0] || 'ai_provider_not_configured'); err.detail = detail; throw err;
 }
 const hasProvider = (env) => Boolean(env.ANTHROPIC_API_KEY || env.GROQ_API_KEY || env.AI?.run || env.GEMINI_API_KEY);
 
@@ -424,7 +424,7 @@ async function pushAll(env, title, body, extra = {}) {
 async function notify(env, title, text) {
   const hist = await kget(env, 'hist', []);
   hist.push({ role: 'model', text: `🔔 ${title}\n${text}`.slice(0, 3000), at: Date.now(), proactive: true });
-  await kput(env, 'hist', hist.slice(-40));
+  await kput(env, 'hist', hist.slice(-60));
   await pushAll(env, title, text).catch(() => {});
 }
 
@@ -440,6 +440,7 @@ const DECLS = [
   { name: 'unwatch', description: 'أوقف مراقبة موقع بالمعرّف', parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
   { name: 'remember', description: 'احفظ معلومة دائمة عن المستخدم أو تفضيلاته', parameters: { type: 'object', properties: { note: { type: 'string' } }, required: ['note'] } },
   { name: 'forget', description: 'احذف ملاحظات محفوظة تحتوي على نص معين', parameters: { type: 'object', properties: { contains: { type: 'string' } }, required: ['contains'] } },
+  { name: 'set_name', description: 'احفظ للأبد الاسم أو اللقب الذي يحب المستخدم أن تناديه به. استدعها فورًا عندما يقول «نادني X» أو «اسمي X».', parameters: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
   { name: 'list_files', description: 'اعرض الملفات التي رفعها المستخدم', parameters: { type: 'object', properties: {} } },
   { name: 'read_file', description: 'اقرأ ملفًا نصيًا/كودًا مرفوعًا (يدعم offset للصفحات الطويلة)', parameters: { type: 'object', properties: { id: { type: 'string' }, offset: { type: 'integer' } }, required: ['id'] } },
   { name: 'analyze_file', description: 'حلّل ملف PDF أو صورة أو صوت أو فيديو مرفوع وأجب عن سؤال حوله', parameters: { type: 'object', properties: { id: { type: 'string' }, question: { type: 'string' } }, required: ['id', 'question'] } },
@@ -581,6 +582,7 @@ async function runTool(env, name, a, opts = {}) {
     case 'list_watches': return { watches: (await kget(env, 'watch', [])).map(({ id, url, note, every }) => ({ id, url, note, every })) };
     case 'unwatch': { const w = await kget(env, 'watch', []); const n = w.filter(x => x.id !== a.id); if (n.length === w.length) return { error: 'not_found' }; await kput(env, 'watch', n); return { ok: true }; }
     case 'remember': { const m = await kget(env, 'mem', []); m.push(clean(a.note, 300)); await kput(env, 'mem', m.slice(-60)); return { ok: true }; }
+    case 'set_name': { const name = clean(a.name, 40).replace(/[\r\n]/g, ' ').trim(); if (!name) return { error: 'bad_arguments' }; await kput(env, 'profile', { name }); return { ok: true, name }; }
     case 'forget': { const m = await kget(env, 'mem', []); const n = m.filter(x => !x.includes(String(a.contains))); await kput(env, 'mem', n); return { ok: true, removed: m.length - n.length }; }
     case 'list_files': return { files: await kget(env, 'files', []) };
     case 'read_file': {
@@ -718,14 +720,15 @@ const TOOL_LABELS = {
   search_web: 'يبحث في الويب', fetch_url: 'يقرأ صفحة ويب', watch_site: 'يضبط مراقبة موقع', unwatch: 'يوقف مراقبة موقع', list_watches: 'يراجع المواقع المراقَبة',
   read_file: 'يقرأ ملفًا', analyze_file: 'يحلّل ملفًا', list_files: 'يتصفح الملفات', list_zip: 'يفتح الأرشيف', read_zip_entry: 'يقرأ من الأرشيف', write_file: 'يكتب ملفًا', delete_file: 'يجهّز حذف ملف',
   set_reminder: 'يضبط تذكيرًا', list_reminders: 'يراجع التذكيرات', cancel_reminder: 'يلغي تذكيرًا', schedule_task: 'يجدول مهمة', list_scheduled_tasks: 'يراجع المهام المجدولة', cancel_scheduled_task: 'يلغي مهمة مجدولة',
-  remember: 'يحفظ ملاحظة', forget: 'يحذف ملاحظة', cf_workers: 'يفحص Cloudflare', cf_deployments: 'يفحص عمليات النشر',
+  remember: 'يحفظ ملاحظة', set_name: 'يحفظ اسمك', forget: 'يحذف ملاحظة', cf_workers: 'يفحص Cloudflare', cf_deployments: 'يفحص عمليات النشر',
   gh_list_repos: 'يتصفح GitHub', gh_read: 'يقرأ من GitHub', gh_list_issues: 'يتصفح GitHub', gh_list_prs: 'يتصفح GitHub', gh_list_branches: 'يتصفح GitHub', gh_workflow_runs: 'يفحص GitHub Actions',
   gh_write_file: 'يجهّز تعديلًا على GitHub', gh_create_issue: 'يجهّز Issue', gh_create_branch: 'يجهّز فرعًا', gh_create_pr: 'يجهّز Pull Request', gh_comment: 'يجهّز تعليقًا',
   phone_command: 'يجهّز أمرًا للهاتف', phone_open_url: 'يجهّز فتح رابط', phone_open_app: 'يجهّز فتح تطبيق', send_webhook: 'يجهّز طلب Webhook',
 };
+const TRANSIENT = new Set(['fetch_failed', 'search_failed', 'github_connection_failed', 'cloudflare_connection_failed', 'tool_failed']);
 const toolLabel = (n) => TOOL_LABELS[n] || 'ينفّذ أداة';
 
-function systemPrompt(mem, bg) {
+function systemPrompt(mem, bg, extra = {}) {
   return `أنت "وكيلي": وكيل شخصي ذكي وقدير يعمل لصالح مالكه فقط عبر تطبيق على هاتفه. تتصرف كخبير متمكّن (مبرمج، محلل، باحث، منظّم أعمال) لا كمجيب سطحي.
 الوقت الآن في طرابلس: ${nowIso()}.
 
@@ -752,6 +755,8 @@ function systemPrompt(mem, bg) {
 - لا تكشف أي مفاتيح أو أسرار.
 - عندك استقلالية: جدولة مهام تنفذها بنفسك لاحقًا (schedule_task)، وكتابة ملفات للمستخدم (write_file)، والعمل على GitHub (قراءة المستودعات وIssues وPRs وحالة Actions مباشرة؛ وإنشاء فروع وPR وتعليقات وكتابة ملفات بموافقة)، وقراءة حالة Cloudflare، وفتح رابط أو تطبيق على الهاتف (بموافقة)، وإرسال webhooks (بموافقة).
 ${bg ? '- أنت الآن تنفذ مهمة مجدولة دون حضور المستخدم. نفّذها كاملة بالأدوات ثم اكتب خلاصة واضحة للنتيجة. أي أمر حساس سينتظر موافقة المستخدم ولا ينفذ وحده.' : ''}
+${extra.name ? `اسم المستخدم الذي يحب أن تناديه به: «${extra.name}». ناده به بشكل طبيعي ولا تنسه أبدًا.` : 'إذا قال المستخدم «نادني X» أو «اسمي X» فاستدعِ set_name فورًا لتحفظه للأبد.'}
+${extra.summary ? 'ملخص محادثاتك السابقة مع المستخدم (للسياق فقط):\n' + extra.summary : ''}
 ${mem.length ? 'ملاحظات محفوظة عن المستخدم:\n- ' + mem.join('\n- ') : ''}`;
 }
 
@@ -779,13 +784,16 @@ const leadFor = (base) => !base ? '' : base.endsWith('\n\n') ? '' : base.endsWit
 function errInfo(e) {
   const m = String(e?.message || e);
   const code = /^(gemini|groq|anthropic|workers_ai)_/.test(m) || m === 'ai_provider_not_configured' ? m : 'agent_failed';
-  const hint = /429|quota|rate/i.test(m) ? 'وصل مزوّد الذكاء الاصطناعي إلى حدّه المؤقت؛ جرّب بعد قليل أو تحقق من إعداد المزوّد الاحتياطي.' : undefined;
+  const NAMES = { anthropic: 'Claude', groq: 'Groq', gemini: 'Gemini', workers_ai: 'Workers AI' };
+  const why = (f) => /429|quota|rate/i.test(f) ? 'وصل حدّه المؤقت' : /401|403|invalid|permission/i.test(f) ? 'المفتاح غير صالح أو غير مصرّح' : /(?:^|\D)5\d\d(?:\D|$)|timeout|abort/i.test(f) ? 'عنده مشكلة مؤقتة' : 'تعذّر';
+  const seen = new Map(); for (const f of e?.detail || []) { const k = /^(anthropic|groq|gemini|workers_ai)/.exec(f)?.[1]; if (k && !seen.has(k)) seen.set(k, why(f)); }
+  const hint = seen.size ? [...seen].map(([k, w]) => `${NAMES[k]}: ${w}`).join(' · ') + '. جرّب بعد دقيقة.' : /429|quota|rate/i.test(m) ? 'وصل مزوّد الذكاء الاصطناعي إلى حدّه المؤقت؛ جرّب بعد قليل أو تحقق من إعداد المزوّد الاحتياطي.' : undefined;
   return { code, hint };
 }
 
 async function agentLoop(env, run, { emit, pendings, persist }) {
   const mem = await kget(env, 'mem', []);
-  const sys = systemPrompt(mem, run.bg);
+  const sys = systemPrompt(mem, run.bg, { name: (await kget(env, 'profile', null))?.name, summary: await kget(env, 'sum', '') });
   const maxSteps = run.bg ? 14 : 18;
   let finished = false, first = true;
   while (run.step < maxSteps) {
@@ -796,7 +804,11 @@ async function agentLoop(env, run, { emit, pendings, persist }) {
       onText(d) { if (!d) return; if (lead) { run.acc += lead; emit({ t: 'text', d: lead }); lead = ''; } run.acc += d; stepText += d; emit({ t: 'text', d }); },
       onReset() { run.acc = base; stepText = ''; lead = leadFor(base); emit({ t: 'reset', text: base }); },
     };
-    const res = await agentModel(env, { systemInstruction: { parts: [{ text: sys }] }, contents: run.contents, tools: [{ functionDeclarations: DECLS }], generationConfig: { temperature: 0.4 } }, hooks);
+    let res;
+    for (let attempt = 0; ; attempt++) {
+      try { res = await agentModel(env, { systemInstruction: { parts: [{ text: sys }] }, contents: run.contents, tools: [{ functionDeclarations: DECLS }], generationConfig: { temperature: 0.4 } }, hooks); break; }
+      catch (e) { if (attempt >= 1 || !/(?:^|\D)5\d\d(?:\D|$)|timeout|abort|network|fetch|empty_response/i.test(String(e?.message))) throw e; await sleep(Number(env.RETRY_DELAY_MS ?? 2500)); }
+    }
     const content = res.candidates?.[0]?.content;
     if (!content?.parts?.length) { if (!run.acc) hooks.onText(res.promptFeedback?.blockReason ? 'النموذج رفض هذا الطلب.' : 'ما جاني رد من النموذج، جرّب مرة ثانية.'); finished = true; break; }
     run.contents.push(content);
@@ -806,7 +818,9 @@ async function agentLoop(env, run, { emit, pendings, persist }) {
     const out = [];
     for (const p of calls) {
       const before = pendings.length;
-      let r; try { r = await runTool(env, p.functionCall.name, p.functionCall.args, { pendings }); } catch (e) { r = { error: 'tool_failed', detail: String(e.message).slice(0, 100) }; }
+      const exec = async () => { try { return await runTool(env, p.functionCall.name, p.functionCall.args, { pendings }); } catch (e) { return { error: 'tool_failed', detail: String(e.message).slice(0, 100) }; } };
+      let r = await exec();
+      if (r && TRANSIENT.has(r.error)) { await sleep(Number(env.RETRY_DELAY_MS ?? 1500)); r = await exec(); }
       out.push({ functionResponse: { name: p.functionCall.name, response: r && typeof r === 'object' ? r : { result: r } }, cid: p.cid });
       emit({ t: 'tool_done', id: p.cid, name: p.functionCall.name, ok: !(r && r.error) });
       for (const a of pendings.slice(before)) emit({ t: 'approval', a });
@@ -819,10 +833,23 @@ async function agentLoop(env, run, { emit, pendings, persist }) {
   return 'done';
 }
 
+// Long conversations: the oldest turns are folded into a short running summary so the agent keeps the gist without a huge prompt.
+async function maybeSummarize(env) {
+  const hist = await kget(env, 'hist', []);
+  if (hist.length <= 40) return;
+  const old = hist.slice(0, hist.length - 20), keep = hist.slice(-20);
+  const prev = await kget(env, 'sum', '');
+  const talk = old.map(h => `${h.role === 'user' ? 'المستخدم' : 'الوكيل'}: ${String(h.text).slice(0, 500)}`).join('\n');
+  try {
+    const res = await agentModel(env, { systemInstruction: { parts: [{ text: 'لخّص المحادثة في نقاط قصيرة بالعربية: ما طلبه المستخدم، ما تقرّر، تفضيلاته، وأي مهام معلّقة. احتفظ بالأسماء والأرقام المهمة. لا تزد عن 1500 حرف. أخرج الملخص فقط.' }] }, contents: [{ role: 'user', parts: [{ text: (prev ? `الملخص السابق:\n${prev}\n\n` : '') + `المحادثة الجديدة للتلخيص:\n${talk}` }] }], generationConfig: { temperature: 0.2 } });
+    const t = textOf(res).trim(); if (!t) return;
+    await kput(env, 'sum', t.slice(0, 3000)); await kput(env, 'hist', keep);
+  } catch {}
+}
 async function saveHist(env, run, text) {
   const hist = await kget(env, 'hist', []);
   hist.push({ role: 'user', text: String(run.histText).slice(0, 2000), at: run.at }, { role: 'model', text: String(text).slice(0, 6000), at: Date.now() });
-  await kput(env, 'hist', hist.slice(-40));
+  await kput(env, 'hist', hist.slice(-60));
 }
 const plain = (s) => String(s).replace(/```[\s\S]*?```/g, ' [كود] ').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[*_`#>|~]+/g, '').replace(/\s+/g, ' ').trim();
 
@@ -856,6 +883,7 @@ async function executeRun(env, run, { sink = null, persist = false } = {}) {
   run.status = 'done'; run.reply = run.acc.trim() || '(ما فيش رد)';
   if (!run.bg) await saveHist(env, run, run.reply);
   emit({ t: 'done', reply: run.reply, approvals: run.pendings });
+  if (!run.bg) await maybeSummarize(env).catch(() => {});
   if (persist) {
     await kput(env, 'run', slimRun(run));
     const away = sink ? sink.dead : true;
@@ -886,12 +914,12 @@ async function resumeStalledRun(env) {
   await executeRun(env, run, { persist: true });
 }
 
-async function transcribe(env, mime, data) {
+async function transcribe(env, mime, data, lang = '') {
   if (env.GROQ_API_KEY) {
     try {
       const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
       const ext = { 'audio/wav': 'wav', 'audio/mp3': 'mp3', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/aac': 'm4a', 'audio/flac': 'flac', 'audio/webm': 'webm' }[mime] || 'wav';
-      const fd = new FormData(); fd.append('file', new Blob([bytes], { type: mime }), `audio.${ext}`); fd.append('model', env.GROQ_STT_MODEL || 'whisper-large-v3-turbo'); fd.append('response_format', 'json');
+      const fd = new FormData(); fd.append('file', new Blob([bytes], { type: mime }), `audio.${ext}`); fd.append('model', env.GROQ_STT_MODEL || 'whisper-large-v3-turbo'); fd.append('response_format', 'json'); if (/^ar/i.test(lang)) fd.append('language', 'ar');
       const r = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: `Bearer ${env.GROQ_API_KEY}` }, body: fd, signal: AbortSignal.timeout(30000) });
       if (r.ok) { const t = String((await r.json().catch(() => ({}))).text || '').trim(); if (t) return t.slice(0, 4000); }
     } catch {}
@@ -987,7 +1015,7 @@ async function api(request, env, url, ctx) {
 
   if (p === '/api/state' && m === 'GET') {
     const [hist, rem, watch, files, mem, subs, jobs, pends] = await Promise.all(['hist', 'rem', 'watch', 'files', 'mem', 'subs', 'jobs', 'pends'].map(k => kget(env, k, [])));
-    return json({ ready: hasProvider(env), hist: hist.slice(-30), reminders: rem.map(r => ({ ...r, when: fmtLocal(r.at) })), watches: watch.map(({ id, url, note, every }) => ({ id, url, note, every })), files, memory: mem, devices: subs.length, phoneBridge: Boolean(env.PHONE_TOKEN), github: Boolean(env.GITHUB_TOKEN),
+    return json({ ready: hasProvider(env), hist: hist.slice(-30), name: (await kget(env, 'profile', null))?.name || '', reminders: rem.map(r => ({ ...r, when: fmtLocal(r.at) })), watches: watch.map(({ id, url, note, every }) => ({ id, url, note, every })), files, memory: mem, devices: subs.length, phoneBridge: Boolean(env.PHONE_TOKEN), github: Boolean(env.GITHUB_TOKEN),
       jobs: jobs.map(j => ({ id: j.id, note: j.note, prompt: j.prompt.slice(0, 160), next: fmtLocal(j.at), daily: j.daily || 0, repeat: j.repeat || 0 })),
       pending: pends.filter(x => x.exp > Date.now()).map(x => ({ id: x.id, summary: x.summary })),
       run: await (async () => { const r = await kget(env, 'run', null); return r && r.status === 'running' && Date.now() - r.at < 30 * 60000 ? runSummary(r) : null; })() });
@@ -1000,7 +1028,7 @@ async function api(request, env, url, ctx) {
     if (body.audio && typeof body.audio.data === 'string') {
       const mime = String(body.audio.mime || '').split(';')[0];
       if (!/^audio\/(wav|mp3|mpeg|ogg|aac|flac|webm)$/.test(mime) || body.audio.data.length > 1_400_000) return json({ error: 'audio_invalid' }, 400);
-      try { transcript = await transcribe(env, mime, body.audio.data); } catch { return json({ error: 'agent_failed' }, 502); }
+      try { transcript = await transcribe(env, mime, body.audio.data, String(body.audio.lang || '').slice(0, 10)); } catch { return json({ error: 'agent_failed' }, 502); }
       text = transcript;
     }
     const shown = text;
@@ -1044,7 +1072,7 @@ async function api(request, env, url, ctx) {
     if (b.decision !== 'approve') return json({ ok: true, result: 'أُلغي الطلب.' });
     const r = await runTool(env, pend.name, pend.args, { approved: true });
     const text = r.error ? `فشل التنفيذ: ${r.error}` : `نُفّذ: ${pend.summary}`;
-    const hist = await kget(env, 'hist', []); hist.push({ role: 'model', text: `✅ ${text}`, at: Date.now() }); await kput(env, 'hist', hist.slice(-40));
+    const hist = await kget(env, 'hist', []); hist.push({ role: 'model', text: `✅ ${text}`, at: Date.now() }); await kput(env, 'hist', hist.slice(-60));
     return json({ ok: !r.error, result: text, detail: r });
   }
   if (p === '/api/files' && m === 'PUT') {
@@ -1069,7 +1097,7 @@ async function api(request, env, url, ctx) {
   if (p === '/api/jobs' && m === 'DELETE') return json(await runTool(env, 'cancel_scheduled_task', { id: url.searchParams.get('id') }));
   if (p === '/api/reminders' && m === 'DELETE') return json(await runTool(env, 'cancel_reminder', { id: url.searchParams.get('id') }));
   if (p === '/api/watches' && m === 'DELETE') return json(await runTool(env, 'unwatch', { id: url.searchParams.get('id') }));
-  if (p === '/api/history' && m === 'DELETE') { await kput(env, 'hist', []); return json({ ok: true }); }
+  if (p === '/api/history' && m === 'DELETE') { await kput(env, 'hist', []); await kput(env, 'sum', ''); return json({ ok: true }); }
   if (p === '/api/memory' && m === 'DELETE') { await kput(env, 'mem', []); return json({ ok: true }); }
   if (p === '/api/push/key' && m === 'GET') return json({ publicKey: (await getVapid(env)).pub });
   if (p === '/api/push/subscribe' && m === 'POST') {
